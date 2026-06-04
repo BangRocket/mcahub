@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/McadiffHub/McadiffHub.csproj" />
+  </Folder>
+  <Project Path="../mca-git/src/McaDiff/McaDiff.csproj" />
+</Solution>
