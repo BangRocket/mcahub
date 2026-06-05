@@ -1,0 +1,61 @@
+# CodeRabbit configuration — path-scoped review guidance keyed to the hub's security
+# invariants (see SECURITY.md for the full trust-boundary map).
+# https://docs.coderabbit.ai/guides/configure-coderabbit
+language: en-US
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_instructions:
+    - path: "src/McadiffHub/Auth.cs"
+      instructions: >
+        This file is the security crux. All authorization must route through HubDb.RoleOf via
+        the Can* predicates — flag any ad-hoc permission check. Token comparisons against the
+        master token must stay constant-time (CryptographicOperations.FixedTimeEquals). The
+        CSRF helpers (CsrfField/CsrfOk) must cover every cookie-authenticated state-changing
+        POST, and Bearer-only transport POSTs must stay OUT of the antiforgery path or the CLI
+        breaks. returnUrl handling must stay restricted to local paths (Local).
+    - path: "src/McadiffHub/Transport.cs"
+      instructions: >
+        Every GET goes through Readable, every write through Write. Private repos must return
+        404, never 403 — existence is hidden. Fast-forward checks and pack hash verification
+        belong in the mcadiff core, not here. Ownership claim-on-first-push is intentional but
+        sensitive — flag any change to its conditions.
+    - path: "src/McadiffHub/HubDb.cs"
+      instructions: >
+        Token plaintext is never stored or logged: SHA-256 of mcahub_<30 random bytes>, shown
+        once, looked up by hash. RoleOf is the single source of truth for the role ladder
+        (owner > admin > maintain > write > read) — transport, pages, and UI all fold through
+        it. Writes go through the process-wide lock with atomic tmp+rename — flag any
+        file-write outside that path.
+    - path: "src/McadiffHub/Pages.cs"
+      instructions: >
+        Server-rendered HTML, no SPA. All user-controlled text must be HTML-escaped or set via
+        textContent; embedded page data goes through System.Text.Json. CanSee gates private
+        repos to 404. Every state-changing form needs the antiforgery token.
+    - path: "src/McadiffHub/RepoStore.cs"
+      instructions: >
+        IsValidName is the path-traversal guard — every filesystem path must be built only
+        after validation. Flag any path construction from a name that hasn't passed it.
+    - path: "src/McadiffHub/{MapRenderer,MapCache,WorldCache}.cs"
+      instructions: >
+        This is the untrusted-NBT-to-image path: attacker-pushed chunk data sizes allocations.
+        Watch for attacker-sized allocations before the 160x160-chunk span cap applies,
+        extreme/negative section Y, and malformed palettes. Caches are keyed by commit hash and
+        rely on commit immutability — flag anything that would cache mutable state. Inflate /
+        NBT-depth / path-confinement bounds live in the mcadiff core (SafeInflate,
+        NbtDepthGuard, PathGuard.Confine) — flag any code that reaches around them.
+
+  tools:
+    markdownlint:
+      enabled: true
+
+knowledge_base:
+  learnings:
+    scope: local

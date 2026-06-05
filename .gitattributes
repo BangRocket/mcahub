@@ -1,0 +1,24 @@
+# Normalize line endings to LF (matches .editorconfig and the mcadiff core). Workflow yml and
+# any future container scripts are interpreted byte-for-byte on Linux — CRLF there is a hard error.
+* text=auto eol=lf
+
+*.cs       text eol=lf
+*.csproj   text eol=lf
+*.slnx     text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.jsonc    text eol=lf
+*.sh       text eol=lf
+*.css      text eol=lf
+
+# Minecraft world payloads are binary — never let git touch their bytes (matters the day this
+# repo grows test fixtures; the data/cache/maps dirs themselves are gitignored).
+*.mca      binary
+*.mcr      binary
+*.mcc      binary
+*.dat      binary
+*.dat_old  binary
+*.nbt      binary
+*.mcapatch binary

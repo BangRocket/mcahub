@@ -1,0 +1,41 @@
+# Dependabot — keeps the SHA-pinned GitHub Actions current (workflows pin third-party actions
+# by commit SHA; without an automated bumper those pins go stale). The nuget ecosystem is
+# registered for the day the hub gains a package — today it has zero NuGet dependencies by
+# design (even the PNG encoder is hand-rolled).
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+    # Dependabot bumps the SHA and refreshes the trailing `# vX` comment. Grouped — action
+    # bumps are low-review.
+    groups:
+      actions-all:
+        patterns:
+          - "*"
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+    groups:
+      nuget-patch-and-minor:
+        update-types:
+          - patch
+          - minor
