@@ -33,7 +33,8 @@ public class TransportOracleTests
         using var f = new HubFactory(HubMode.Accounts);
         HttpClient alice = await Accounts.SignInAsync(f, "alice");
         string aliceToken = await Accounts.MintTokenAsync(alice);
-        await Accounts.CreateRepoAsync(f, aliceToken, "openworld"); // left public
+        await Accounts.CreateRepoAsync(f, aliceToken, "openworld");
+        await Accounts.SetPrivateAsync(alice, "openworld", isPrivate: false); // explicitly public (new worlds default private now, #34)
 
         HttpClient bob = await Accounts.SignInAsync(f, "bob");
         string bobToken = await Accounts.MintTokenAsync(bob);
