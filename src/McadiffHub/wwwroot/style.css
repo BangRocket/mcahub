@@ -81,6 +81,16 @@ ul.changes li { font-family: ui-monospace, monospace; font-size: 12.5px; padding
   border: 1px solid var(--border); border-radius: 8px; background: #11161c; display: block;
 }
 
+/* time-machine scrubber */
+.scrubber { display: flex; align-items: center; gap: 14px; margin: 4px 0 6px; }
+.scrubber input[type=range] { flex: 1; accent-color: var(--link); height: 4px; cursor: pointer; }
+.scrubber #tm-play {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.scrubber #tm-play:hover { border-color: var(--link); }
+.scrubber #tm-when { font-family: ui-monospace, monospace; font-size: 12px; white-space: nowrap; }
+
 .actions { font-size: 13px; }
 .actions a { color: var(--link); }
 ol.timeline li .actions { flex-basis: 100%; }

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using McaDiff.Diff;
 using McaDiff.Query;
 using McaDiff.Repo;
@@ -20,6 +21,7 @@ public static class Pages
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
             World(ctx, store, db, cfg, cache, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
         app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, maps, db, cfg, repo, reff));
+        app.MapGet("/r/{repo}/timeline", (string repo, HttpContext ctx) => Scrub(ctx, store, db, cfg, repo));
 
         if (!cfg.Accounts) return; // account + visibility surfaces only exist when accounts are enabled
 
@@ -243,7 +245,7 @@ public static class Pages
 
         if (repo.HeadCommit() is { } head)
         {
-            b.Append("<h2>Backups</h2><ol class=\"timeline\">");
+            b.Append($"""<h2>Backups</h2><p class="actions"><a href="/r/{E(name)}/timeline">🕑 time machine — scrub the map across backups</a></p><ol class="timeline">""");
             string? cur = head;
             for (int i = 0; cur is not null && i < 50; i++)
             {
@@ -370,6 +372,75 @@ public static class Pages
         ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable"; // a commit's map never changes
         return Results.Bytes(png, "image/png");
     }
+
+    // ---- time-machine scrubber ----
+
+    private sealed record ScrubPoint(string Hash, string Short, string Msg, string Author, string When);
+
+    private static IResult Scrub(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
+        Repository repo = store.Open(name);
+
+        var pts = new List<ScrubPoint>();
+        string? cur = repo.HeadCommit();
+        for (int i = 0; cur is not null && i < 200; i++)
+        {
+            CommitObject c = repo.ReadCommit(cur);
+            pts.Add(new ScrubPoint(cur, cur[..10], Oneline(c.Message), c.Author, When(c.CommitTime ?? c.Time)));
+            cur = repo.ParentsOf(cur) is [string p, ..] ? p : null;
+        }
+        pts.Reverse(); // oldest → newest, so the slider runs left(past) → right(present)
+
+        if (pts.Count == 0)
+            return Page($"Time machine · {name}", $"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p><h1>Time machine · {E(name)}</h1><p class="empty">No backups yet.</p>""", chip);
+
+        int max = pts.Count - 1;
+        string body = TimeMachineTemplate
+            .Replace("%%NAME%%", E(name))
+            .Replace("%%MAX%%", max.ToString())
+            .Replace("%%DIS%%", pts.Count < 2 ? "disabled" : "")
+            .Replace("%%DATA%%", JsonSerializer.Serialize(pts))
+            .Replace("%%REPOJSON%%", JsonSerializer.Serialize(name));
+        return Page($"Time machine · {name}", body, chip);
+    }
+
+    // Placeholders (not C# interpolation) so the JS braces stay literal. %%NAME%% is pre-HTML-escaped;
+    // %%DATA%%/%%REPOJSON%% are System.Text.Json output (escapes <,>,& — safe to inline in <script>);
+    // captions are written via textContent, never innerHTML.
+    private const string TimeMachineTemplate = """
+        <p class="back"><a href="/r/%%NAME%%">← %%NAME%%</a></p>
+        <h1>Time machine · %%NAME%%</h1>
+        <p class="map"><img id="tm-map" alt="world map at the selected backup"></p>
+        <div class="scrubber">
+          <button id="tm-play" type="button">▶ play</button>
+          <input id="tm-scrub" type="range" min="0" max="%%MAX%%" value="%%MAX%%" %%DIS%%>
+          <span class="meta" id="tm-when"></span>
+        </div>
+        <p class="cmeta" id="tm-cap"></p>
+        <script>
+        const B = %%DATA%%, repo = %%REPOJSON%%;
+        const img = document.getElementById('tm-map'), cap = document.getElementById('tm-cap'),
+              when = document.getElementById('tm-when'), slider = document.getElementById('tm-scrub'),
+              playBtn = document.getElementById('tm-play');
+        function show(i){
+          const b = B[i]; if(!b) return;
+          img.src = '/r/'+repo+'/map/'+b.Hash+'.png';
+          cap.textContent = b.Short + ' · ' + b.Msg;
+          when.textContent = '#'+(i+1)+'/'+B.length+' · '+b.Author+' · '+b.When;
+          [i-1,i+1].forEach(function(j){ if(B[j]){ const p=new Image(); p.src='/r/'+repo+'/map/'+B[j].Hash+'.png'; } });
+        }
+        slider.addEventListener('input', function(e){ show(+e.target.value); });
+        let timer=null;
+        playBtn.addEventListener('click', function(){
+          if(timer){ clearInterval(timer); timer=null; playBtn.textContent='▶ play'; return; }
+          playBtn.textContent='⏸ pause';
+          timer=setInterval(function(){ let v=+slider.value+1; if(v>B.length-1) v=0; slider.value=v; show(v); }, 1200);
+        });
+        show(+slider.value);
+        </script>
+        """;
 
     // ---- account ----
 

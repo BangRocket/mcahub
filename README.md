@@ -15,7 +15,8 @@ If mcadiff is git for worlds, this is the hub you push them to.
   file/chunk/block diff with a "what happened here" grief summary (destroyed / placed / replaced, the
   destruction bounding box, the most-destroyed blocks), a **compare-any-two-backups** view (the same
   forensics between arbitrary backups), a **world explorer** (players + find an entity / block entity /
-  sign), and a **rendered top-down map** per backup (with a before/after pair on the compare page).
+  sign), a **rendered top-down map** per backup (with a before/after pair on the compare page), and a
+  **time-machine scrubber** that slides the map across a world's whole backup history.
 - **In-process** — references the mcadiff core directly, so it renders the real `WorldDiff` / `GriefReport`
   structures instead of scraping CLI text.
 - **Accounts (optional)** — OAuth sign-in (GitHub by default, any OAuth2 provider via config), per-user
@@ -109,8 +110,10 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
   uses. Writes are token-gated; the fast-forward check and pack hash-verification happen server-side in
   the mcadiff core.
 - `Pages` — server-rendered HTML (no SPA): the repo list, a repo's timeline, a backup's
-  `RepoDiffer`-computed diff + `GriefReport` summary, a compare-any-two-backups view, and a world
-  explorer (players + `WorldQuery` find).
+  `RepoDiffer`-computed diff + `GriefReport` summary, a compare-any-two-backups view, a world
+  explorer (players + `WorldQuery` find), and the time-machine scrubber (`/r/{repo}/timeline`) — a little
+  inline JS that swaps the cached map `<img>` across the backup history; backup data is embedded as
+  `System.Text.Json` output and captions are set via `textContent`, so commit messages can't inject script.
 - `WorldCache` — materializes a backup to `cache/<repo>/<commit>` once (commits are immutable) so the
   dir-based `WorldQuery` reads a real world without re-checking-out on every page view.
 - `MapRenderer` + `MapCache` — render a top-down surface map of a materialized world to a PNG: per block
@@ -130,12 +133,12 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
 
 Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, a
 **world explorer** (players + find an entity / block entity / sign, backed by a materialize-once world
-cache), **rendered maps** per backup, and **accounts** (OAuth sign-in, per-user tokens, public/private
-worlds, collaborators, teams). Natural next steps (some shared with the mcadiff GUI RFC):
+cache), **rendered maps** + a **time-machine scrubber**, and **accounts** (OAuth sign-in, per-user tokens,
+public/private worlds, collaborators, teams). Natural next steps (some shared with the mcadiff GUI RFC):
 
 - Antiforgery tokens on the state-changing POSTs (today they rely on `SameSite=Lax`), and finer roles
   (admin/maintain) beyond read/write.
-- A time-machine **scrubber** over the map sequence, and map thumbnails on the timeline.
+- Map thumbnails on the backup timeline, and a focusable region/coordinate jump in the map.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
 - Package the mcadiff core as a proper library so the reference isn't a sibling-path coupling.
