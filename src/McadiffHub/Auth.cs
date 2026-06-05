@@ -60,6 +60,7 @@ public static class Auth
             o.Cookie.Name = "mcahub_csrf";
             o.Cookie.HttpOnly = true;
             o.Cookie.SameSite = SameSiteMode.Lax;
+            o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // Secure over HTTPS, still works over a local http dev server
         });
         AuthenticationBuilder ab = builder.Services
             .AddAuthentication(o => o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
@@ -68,6 +69,7 @@ public static class Auth
                 o.Cookie.Name = "mcahub_session";
                 o.Cookie.HttpOnly = true;
                 o.Cookie.SameSite = SameSiteMode.Lax; // sends on top-level nav, withheld on cross-site POST → CSRF cover
+                o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // Secure over HTTPS
                 o.LoginPath = "/auth/login";
                 o.LogoutPath = "/auth/logout";
                 o.ExpireTimeSpan = TimeSpan.FromDays(30);

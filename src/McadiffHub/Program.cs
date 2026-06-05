@@ -36,6 +36,7 @@ int renderConcurrency = (int)(ParsePositiveLong(builder.Configuration["MaxRender
 int maxRenderChunks = (int)(ParsePositiveLong(builder.Configuration["MaxRenderChunks"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_RENDER_CHUNKS")) ?? 10_000);
 TimeSpan renderTimeout = TimeSpan.FromSeconds(ParsePositiveLong(builder.Configuration["RenderTimeoutSeconds"] ?? Environment.GetEnvironmentVariable("MCAHUB_RENDER_TIMEOUT_SECONDS")) ?? 30);
 builder.Services.AddRequestTimeouts(o => o.AddPolicy(Pages.RenderTimeoutPolicy, renderTimeout));
+builder.Services.AddHsts(o => { o.MaxAge = TimeSpan.FromDays(365); o.IncludeSubDomains = true; }); // emitted only on HTTPS
 
 // Per-IP rate limits per surface (fixed 1-minute windows). Behind a proxy, RemoteIpAddress is accurate
 // only once forwarded-headers handling sets it (see the proxy issue) — the limiter picks it up then.
@@ -107,7 +108,20 @@ if ((app.Configuration["BehindProxy"] ?? Environment.GetEnvironmentVariable("MCA
     app.UseForwardedHeaders(fwd);
 }
 
-app.UseStaticFiles();                         // wwwroot/style.css
+// Security response headers on everything (incl. static files). The strict CSP works because all client
+// JS lives in /app.js and the time-machine data rides in a JSON data-island — no inline executable script.
+app.Use(async (ctx, next) =>
+{
+    IHeaderDictionary h = ctx.Response.Headers;
+    h["X-Content-Type-Options"] = "nosniff";
+    h["X-Frame-Options"] = "SAMEORIGIN";
+    h["Referrer-Policy"] = "same-origin";
+    h["Content-Security-Policy"] =
+        "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
+    await next(ctx);
+});
+app.UseHsts();                                 // Strict-Transport-Security (only emitted over HTTPS)
+app.UseStaticFiles();                         // wwwroot/style.css, /app.js
 app.UseRequestTimeouts();                      // enforces the per-endpoint render deadline (Pages.RenderTimeoutPolicy)
 app.UseRateLimiter();                          // per-IP, per-surface rate limits (429 + Retry-After)
 app.Use(async (ctx, next) =>                   // bad-token lockout: refuse a locked-out IP's bearer requests early
