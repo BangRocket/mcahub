@@ -5,7 +5,7 @@ using McaDiff.Diff;
 
 namespace McadiffHub;
 
-public sealed record MapInfo(int Width, int Height, int Chunks, bool Truncated);
+public sealed record MapInfo(int Width, int Height, int Chunks, bool Truncated, int RegionsRead = 0);
 
 /// <summary>
 /// Renders a top-down surface map of a materialized world (the <c>region/*.mca</c> files) to a PNG —
@@ -18,24 +18,27 @@ public sealed record MapInfo(int Width, int Height, int Chunks, bool Truncated);
 public static class MapRenderer
 {
     private const int MaxSideChunks = 160; // cap the rendered span at 160×160 chunks (2560px); bigger worlds truncate
-    private const int MaxChunks = 30_000;  // and a hard ceiling on chunks decoded per render
 
-    public static byte[] Render(string worldDir, out MapInfo info, CancellationToken ct = default)
+    public static byte[] Render(string worldDir, out MapInfo info, int maxChunks = 10_000, CancellationToken ct = default)
     {
         string regionDir = Path.Combine(worldDir, "region");
         var surfaces = new Dictionary<ChunkPos, Surface>();
         int minCX = int.MaxValue, minCZ = int.MaxValue, maxCX = int.MinValue, maxCZ = int.MinValue;
 
+        bool capHit = false;
+        int regionsRead = 0;
         if (Directory.Exists(regionDir))
-            foreach (string file in Directory.EnumerateFiles(regionDir, "r.*.mca"))
+            foreach (string file in Directory.EnumerateFiles(regionDir, "r.*.mca").OrderBy(f => f, StringComparer.Ordinal))
             {
-                ct.ThrowIfCancellationRequested(); // a client disconnect / request timeout aborts the render
+                if (capHit) break;                  // (#14) once full, stop opening — don't read every remaining .mca
+                ct.ThrowIfCancellationRequested();  // a client disconnect / request timeout aborts the render
                 RegionFile region;
                 try { region = RegionFile.Open(file); }
                 catch { continue; } // skip an unreadable region rather than fail the whole map
+                regionsRead++;
                 foreach (RawChunk raw in region.Chunks)
                 {
-                    if (surfaces.Count >= MaxChunks) break;
+                    if (surfaces.Count >= maxChunks) { capHit = true; break; }
                     ct.ThrowIfCancellationRequested();
                     Surface? s = SurfaceOf(raw);
                     if (s is null) continue;
@@ -45,10 +48,10 @@ public static class MapRenderer
                 }
             }
 
-        if (surfaces.Count == 0) { info = new MapInfo(0, 0, 0, false); return EmptyPng(); }
+        if (surfaces.Count == 0) { info = new MapInfo(0, 0, 0, false, regionsRead); return EmptyPng(); }
 
-        // Clamp a runaway span to a window centered on the populated area.
-        bool truncated = false;
+        // Clamp a runaway span to a window centered on the populated area. A hit chunk-cap also truncates.
+        bool truncated = capHit;
         if (maxCX - minCX + 1 > MaxSideChunks) { int c = (minCX + maxCX) / 2; minCX = c - MaxSideChunks / 2; maxCX = minCX + MaxSideChunks - 1; truncated = true; }
         if (maxCZ - minCZ + 1 > MaxSideChunks) { int c = (minCZ + maxCZ) / 2; minCZ = c - MaxSideChunks / 2; maxCZ = minCZ + MaxSideChunks - 1; truncated = true; }
 
@@ -77,7 +80,7 @@ public static class MapRenderer
         }
 
         NorthShade(rgb, height, w, h);
-        info = new MapInfo(w, h, placed, truncated);
+        info = new MapInfo(w, h, placed, truncated, regionsRead);
         return EncodePng(w, h, rgb);
     }
 
