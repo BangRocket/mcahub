@@ -81,9 +81,11 @@ Honest list of the thinner spots — these are the bugs I'd expect a review to f
 3. **Path handling on materialize.** Writing a pushed world to disk relies on the core's `PathGuard.Confine`
    to keep manifest file paths inside the target dir. A malicious manifest with `..`/absolute paths is the
    classic test; confirm the boundary holds from the hub's call sites.
-4. **Ownership claim-on-first-push.** In accounts mode, the first authenticated push to an *unowned* repo
-   claims it (`Transport.Write` → `HubDb.EnsureRepo`). On a hub that had repos before accounts were turned on,
-   that's a takeover vector. Intended as a migration affordance — scrutinize it anyway.
+4. **Ownership claim-on-first-push.** In accounts mode, a push to a *genuinely new name* auto-creates and
+   claims it. A repo that already exists on disk with **no owner** is **not** claimable by a non-admin
+   (the takeover guard) unless `MCAHUB_ADOPT_UNOWNED=1` opens a supervised migration window; master-token
+   pushes stamp a `__system__` owner so they're never orphan-claimable, and the hub warns at startup about
+   any unowned worlds (`Transport.Write` → `HubDb.EnsureRepo`). Was a takeover vector pre-#6.
 5. **Master token = full admin bypass** (`MCAHUB_TOKEN`). Single shared secret; if it leaks, game over. No
    rotation, no scoping.
 6. **Account store is a plaintext JSON file** (`hub.json`): usernames, avatars, token *hashes*, grants. Not

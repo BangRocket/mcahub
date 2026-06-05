@@ -104,9 +104,12 @@ The hub runs in one of three modes, chosen by what you configure:
 | `MCAHUB_OAUTH_AUTH_URL` / `_TOKEN_URL` / `_USER_URL` | GitHub's | Override to use GitLab, Gitea, or any OAuth2 provider. |
 | `MCAHUB_OAUTH_SCOPE` | `read:user` | Scopes requested at sign-in. |
 | `MCAHUB_DEV_LOGIN` | (off) | ⚠ Insecure local login at `/auth/dev` for evaluating accounts without an OAuth app. **Never on a public host.** |
+| `MCAHUB_ADOPT_UNOWNED` | (off) | Let the first authenticated push to a **pre-existing** unowned world claim it. Off by default so a signed-up user can't take over a legacy world; turn it on only during a supervised migration. |
 
-When accounts are on, the first authenticated push to an unowned world claims ownership of it (this is how
-worlds pushed before you enabled accounts get adopted).
+When accounts are on, a push to a **genuinely new name** auto-creates and claims it. A world that already
+exists on disk with **no owner** (e.g. pushed before accounts were enabled) is *not* claimable by a
+regular user — an admin must adopt it, or you can open a supervised migration window with
+`MCAHUB_ADOPT_UNOWNED=1`. The hub logs a warning at startup listing any unowned worlds.
 
 ### Enable GitHub sign-in (quickstart)
 
