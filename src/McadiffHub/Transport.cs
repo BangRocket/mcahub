@@ -29,8 +29,8 @@ public static class Transport
         // Negotiate: which of these object hashes is the remote missing?
         app.MapPost("/r/{repo}/have", async (string repo, HttpRequest req) =>
         {
+            if (!Readable(repo, req, db, cfg)) return Results.NotFound(); // auth before touching the body (#3)
             var want = await req.ReadFromJsonAsync<List<string>>(HttpProtocol.Json) ?? [];
-            if (!Readable(repo, req, db, cfg)) return Results.NotFound();
             if (Svc(store, repo, write: false) is { } s) return Results.Json(s.Missing(want), HttpProtocol.Json);
             return RepoStore.IsValidName(repo) ? Results.Json(want, HttpProtocol.Json) : Results.NotFound(); // empty remote → all missing
         });
