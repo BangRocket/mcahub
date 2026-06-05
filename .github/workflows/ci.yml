@@ -37,3 +37,15 @@ jobs:
       - name: Test
         working-directory: mcahub
         run: dotnet test McadiffHub.slnx --configuration Release --no-build
+
+      # The hub ships the core's transitive NuGet deps (fNbt, LZ4, …) via the sibling ProjectReference,
+      # which the repo's own Dependabot never sees. Scan the graph we actually ship and fail on a known CVE.
+      - name: Scan shipped dependencies for vulnerabilities
+        working-directory: mcahub
+        run: |
+          dotnet list McadiffHub.slnx package --vulnerable --include-transitive 2>&1 | tee vuln.txt
+          if grep -q "has the following vulnerable" vuln.txt; then
+            echo "::error::Vulnerable (possibly transitive) NuGet dependencies found — see the table above."
+            exit 1
+          fi
+          echo "No vulnerable dependencies in the shipped graph."
