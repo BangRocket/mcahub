@@ -42,6 +42,24 @@ public static class Pages
                 db.SetPrivate(repo, (await ctx.Request.ReadFormAsync())["private"].ToString() is "on" or "true");
             return Results.Redirect($"/r/{repo}");
         });
+        app.MapPost("/r/{repo}/collaborators", async (string repo, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            {
+                IFormCollection form = await ctx.Request.ReadFormAsync();
+                string role = form["role"].ToString() is "write" ? "write" : "read";
+                HubUser? target = db.UserByLogin(form["login"].ToString().Trim());
+                if (target is null) return Results.Redirect($"/r/{repo}?err=nouser");
+                if (target.Id != m.OwnerId) db.SetCollab(repo, target.Id, role); // owner is already above any grant
+            }
+            return Results.Redirect($"/r/{repo}");
+        });
+        app.MapPost("/r/{repo}/collaborators/remove", async (string repo, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+                db.RemoveCollab(repo, (await ctx.Request.ReadFormAsync())["userId"].ToString());
+            return Results.Redirect($"/r/{repo}");
+        });
     }
 
     private static IResult Home(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg)
@@ -89,6 +107,7 @@ public static class Pages
                     </form>
                     """);
         }
+        RenderCollaborators(b, ctx, db, name, m, me);
         string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
         b.Append($"""<p class="clone">Clone: <code>mcadiff clone {E(baseUrl)}/r/{E(name)} {E(name)}.mcagit</code></p>""");
 
@@ -258,7 +277,48 @@ public static class Pages
             }
             b.Append("</ul>");
         }
+
+        var shared = db.CollabsForUser(me.Id).Where(c => store.Exists(c.Repo)).ToList();
+        if (shared.Count > 0)
+        {
+            b.Append("<h2>Shared with you</h2><ul class=\"repos\">");
+            foreach (Collab c in shared)
+                b.Append($"""<li><a href="/r/{E(c.Repo)}">{E(c.Repo)}</a> <span class="role role-{E(c.Role)}">{E(c.Role)}</span><span class="meta">owned by {E(db.GetUser(db.GetRepo(c.Repo)!.OwnerId)?.Login ?? "?")}</span></li>""");
+            b.Append("</ul>");
+        }
         return Page(me.Login, b.ToString(), chip);
+    }
+
+    private static void RenderCollaborators(StringBuilder b, HttpContext ctx, HubDb db, string name, HubRepoMeta? m, HubUser? me)
+    {
+        if (m is null) return;
+        bool isOwner = me is not null && me.Id == m.OwnerId;
+        var collabs = db.CollabsOf(name);
+        if (collabs.Count == 0 && !isOwner) return; // nothing to show and no controls to offer
+
+        b.Append("<h2>Collaborators</h2>");
+        if (isOwner && ctx.Request.Query["err"] == "nouser")
+            b.Append("""<p class="empty">That user hasn't signed in to the hub yet — they need to sign in once before you can add them.</p>""");
+
+        b.Append("<ul class=\"repos\">");
+        b.Append($"""<li>{E(db.GetUser(m.OwnerId)?.Login ?? "?")} <span class="role role-owner">owner</span></li>""");
+        foreach (Collab c in collabs)
+        {
+            string remove = isOwner
+                ? $"""<form class="revoke" method="post" action="/r/{E(name)}/collaborators/remove"><input type="hidden" name="userId" value="{E(c.UserId)}"><button>remove</button></form>"""
+                : "";
+            b.Append($"""<li>{E(db.GetUser(c.UserId)?.Login ?? "?")} <span class="role role-{E(c.Role)}">{E(c.Role)}</span>{remove}</li>""");
+        }
+        b.Append("</ul>");
+
+        if (isOwner)
+            b.Append($"""
+                <form class="find" method="post" action="/r/{E(name)}/collaborators">
+                  <input name="login" placeholder="username — they must have signed in once">
+                  <select name="role">{Opt("read", "read")}{Opt("write", null)}</select>
+                  <button>Add collaborator</button>
+                </form>
+                """);
     }
 
     private static bool CanSee(HttpContext ctx, HubDb db, Auth.Config cfg, string repo) =>

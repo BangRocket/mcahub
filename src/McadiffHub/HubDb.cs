@@ -48,6 +48,13 @@ public sealed class HubDb
         lock (_lock) return _db.Users.FirstOrDefault(u => u.Id == id);
     }
 
+    /// <summary>Resolve a typed login (what an owner enters to add a collaborator) to a known user.
+    /// Returns null if nobody by that login has signed in yet.</summary>
+    public HubUser? UserByLogin(string login)
+    {
+        lock (_lock) return _db.Users.FirstOrDefault(u => string.Equals(u.Login, login, StringComparison.OrdinalIgnoreCase));
+    }
+
     // ---- tokens ----
 
     /// <summary>Mint a new personal access token. The plaintext is returned <em>once</em>; only its
@@ -134,6 +141,51 @@ public sealed class HubDb
         }
     }
 
+    // ---- collaborators ----
+
+    /// <summary>A user's effective role on a repo: <c>owner</c>, <c>write</c>, <c>read</c>, or null
+    /// (no access). The owner outranks any collaborator grant.</summary>
+    public string? RoleOf(string repo, string? userId)
+    {
+        if (userId is null) return null;
+        lock (_lock)
+        {
+            if (_db.Repos.FirstOrDefault(r => r.Name == repo) is { } m && m.OwnerId == userId) return "owner";
+            return _db.Collabs.FirstOrDefault(c => c.Repo == repo && c.UserId == userId)?.Role;
+        }
+    }
+
+    public IReadOnlyList<Collab> CollabsOf(string repo)
+    {
+        lock (_lock) return _db.Collabs.Where(c => c.Repo == repo).ToList();
+    }
+
+    /// <summary>Repos where the user is a collaborator (not those they own).</summary>
+    public IReadOnlyList<Collab> CollabsForUser(string userId)
+    {
+        lock (_lock) return _db.Collabs.Where(c => c.UserId == userId).ToList();
+    }
+
+    public void SetCollab(string repo, string userId, string role)
+    {
+        if (role is not ("read" or "write")) return;
+        lock (_lock)
+        {
+            int i = _db.Collabs.FindIndex(c => c.Repo == repo && c.UserId == userId);
+            if (i >= 0) _db.Collabs[i] = _db.Collabs[i] with { Role = role };
+            else _db.Collabs.Add(new Collab(repo, userId, role));
+            Save();
+        }
+    }
+
+    public void RemoveCollab(string repo, string userId)
+    {
+        lock (_lock)
+        {
+            if (_db.Collabs.RemoveAll(c => c.Repo == repo && c.UserId == userId) > 0) Save();
+        }
+    }
+
     // ---- helpers ----
 
     private void Save()
@@ -154,6 +206,7 @@ public sealed class HubDb
         public List<HubUser> Users { get; init; } = [];
         public List<TokenRecord> Tokens { get; init; } = [];
         public List<HubRepoMeta> Repos { get; init; } = [];
+        public List<Collab> Collabs { get; init; } = [];
     }
 
     private sealed record TokenRecord(string Hash, string Prefix, string UserId, string Label, string CreatedAt, string? LastUsedAt);
@@ -162,3 +215,4 @@ public sealed class HubDb
 public sealed record HubUser(string Id, string Login, string Name, string Avatar, string CreatedAt);
 public sealed record HubRepoMeta(string Name, string OwnerId, bool Private, string CreatedAt);
 public sealed record TokenInfo(string Prefix, string Label, string CreatedAt, string? LastUsedAt);
+public sealed record Collab(string Repo, string UserId, string Role); // Role: "read" | "write"

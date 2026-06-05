@@ -189,7 +189,7 @@ public static class Auth
         if (!cfg.Accounts) return true;                    // open / shared-token modes: everything public
         HubRepoMeta? m = db.GetRepo(repo);
         if (m is null || !m.Private) return true;          // public, or legacy/unowned
-        return admin || (viewerId is not null && viewerId == m.OwnerId);
+        return admin || db.RoleOf(repo, viewerId) is not null; // owner, or read/write collaborator
     }
 
     public static bool CanWrite(Config cfg, HubDb db, string repo, string? writerId, bool admin)
@@ -198,7 +198,8 @@ public static class Auth
         if (!cfg.Accounts) return true;                    // transport's master-token gate covers token mode
         if (writerId is null) return false;                // accounts mode requires an authenticated PAT
         HubRepoMeta? m = db.GetRepo(repo);
-        return m is null || m.OwnerId == writerId;         // unowned → claimable on push; else owner only
+        if (m is null) return true;                        // unowned → claimable on push
+        return db.RoleOf(repo, writerId) is "owner" or "write"; // owner or write collaborator
     }
 
     // ---- helpers ----

@@ -28,7 +28,7 @@ WebApplication app = builder.Build();
 if (Environment.GetEnvironmentVariable("MCAHUB_BEHIND_PROXY") is "1" or "true")
 {
     var fwd = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost };
-    fwd.KnownNetworks.Clear();               // the hub is only reachable via the proxy, so trust its headers
+    fwd.KnownIPNetworks.Clear();             // the hub is only reachable via the proxy, so trust its headers
     fwd.KnownProxies.Clear();
     app.UseForwardedHeaders(fwd);
 }
