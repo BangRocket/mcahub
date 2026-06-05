@@ -13,13 +13,13 @@ namespace McadiffHub;
 /// </summary>
 public static class Transport
 {
-    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody)
+    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle)
     {
         // Advertise refs. A valid-but-not-yet-created name advertises an empty remote, so a first
         // `push` to it succeeds and auto-creates the world (hub convenience).
         app.MapGet("/r/{repo}/info/refs", (string repo, HttpRequest req) =>
         {
-            if (!Readable(repo, req, db, cfg)) return Results.NotFound();
+            if (!Readable(repo, req, db, cfg, throttle)) return Results.NotFound();
             if (Svc(store, repo, write: false) is { } s) return Results.Json(s.ListRefs(), HttpProtocol.Json);
             return RepoStore.IsValidName(repo)
                 ? Results.Json(new RefAdvertisement([], [], null), HttpProtocol.Json)
@@ -29,7 +29,7 @@ public static class Transport
         // Negotiate: which of these object hashes is the remote missing?
         app.MapPost("/r/{repo}/have", async (string repo, HttpRequest req) =>
         {
-            if (!Readable(repo, req, db, cfg)) return Results.NotFound(); // auth before touching the body (#3)
+            if (!Readable(repo, req, db, cfg, throttle)) return Results.NotFound(); // auth before touching the body (#3)
             var want = await req.ReadFromJsonAsync<List<string>>(HttpProtocol.Json) ?? [];
             if (Svc(store, repo, write: false) is { } s) return Results.Json(s.Missing(want), HttpProtocol.Json);
             return RepoStore.IsValidName(repo) ? Results.Json(want, HttpProtocol.Json) : Results.NotFound(); // empty remote → all missing
@@ -38,7 +38,7 @@ public static class Transport
         // Download one object (compressed).
         app.MapGet("/r/{repo}/objects/{hash}", (string repo, string hash, HttpRequest req) =>
         {
-            if (!Readable(repo, req, db, cfg)) return Results.NotFound();
+            if (!Readable(repo, req, db, cfg, throttle)) return Results.NotFound();
             if (Svc(store, repo, write: false) is not { } s) return Results.NotFound();
             try { return Results.Bytes(s.GetObject(hash), "application/octet-stream"); }
             catch (Exception e) when (e is IOException or InvalidDataException) { return Results.NotFound(); }
@@ -46,11 +46,11 @@ public static class Transport
 
         // Upload one object (single-object fallback).
         app.MapPost("/r/{repo}/objects/{hash}", async (string repo, string hash, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, async s => s.PutObject(hash, await Bytes(req, maxBody))));
+            await Write(store, db, cfg, repo, ctx, throttle, async s => s.PutObject(hash, await Bytes(req, maxBody))));
 
         // Upload a whole pack (the common push path).
         app.MapPost("/r/{repo}/pack", async (string repo, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, async s =>
+            await Write(store, db, cfg, repo, ctx, throttle, async s =>
             {
                 (byte[] pack, byte[] idx) = PackTransfer.UnframeBody(await Bytes(req, maxBody));
                 s.PutPack(pack, idx);
@@ -58,7 +58,7 @@ public static class Transport
 
         // Advance a branch (compare-and-swap, fast-forward guarded server-side).
         app.MapPost("/r/{repo}/refs/heads/{branch}", async (string repo, string branch, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, async s =>
+            await Write(store, db, cfg, repo, ctx, throttle, async s =>
             {
                 RefUpdate u = await req.ReadFromJsonAsync<RefUpdate>(HttpProtocol.Json) ?? new RefUpdate();
                 s.UpdateRef(branch, u.Old, u.New, u.Force);
@@ -68,17 +68,27 @@ public static class Transport
     private static RemoteService? Svc(RepoStore store, string repo, bool write) =>
         store.Exists(repo) ? new RemoteService(store.Open(repo), allowWrite: write) : null;
 
-    private static bool Readable(string repo, HttpRequest req, HubDb db, Auth.Config cfg)
+    private static bool Readable(string repo, HttpRequest req, HubDb db, Auth.Config cfg, AuthThrottle throttle)
     {
-        (string? uid, bool admin) = Auth.Identify(req, cfg, db, out _);
+        (string? uid, bool admin) = Auth.Identify(req, cfg, db, out bool badToken);
+        RecordToken(req, cfg, throttle, badToken);
         return Auth.CanRead(cfg, db, repo, uid, admin);
     }
 
+    /// <summary>Feed the bad-token signal to the lockout throttle — but only when there's actually a
+    /// token to guess (accounts or master-token mode), so an open-mode client can't lock itself out.</summary>
+    private static void RecordToken(HttpRequest req, Auth.Config cfg, AuthThrottle throttle, bool badToken)
+    {
+        if (cfg.Accounts || cfg.MasterToken is not null)
+            throttle.OnResult(req.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown", badToken);
+    }
+
     private static async Task<IResult> Write(RepoStore store, HubDb db, Auth.Config cfg, string repo, HttpContext ctx,
-        Func<RemoteService, Task> body)
+        AuthThrottle throttle, Func<RemoteService, Task> body)
     {
         if (!RepoStore.IsValidName(repo)) return Results.NotFound();
-        (string? uid, bool admin) = Auth.Identify(ctx.Request, cfg, db, out _);
+        (string? uid, bool admin) = Auth.Identify(ctx.Request, cfg, db, out bool badToken);
+        RecordToken(ctx.Request, cfg, throttle, badToken);
 
         if (cfg.Accounts)
         {
