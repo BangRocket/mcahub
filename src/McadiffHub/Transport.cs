@@ -85,7 +85,12 @@ public static class Transport
             if (!admin && uid is null)
                 return Results.Text("authenticate with a personal access token: mcadiff push … --token <PAT>", statusCode: 401);
             if (!Auth.CanWrite(cfg, db, repo, uid, admin))
-                return Results.Text("this world belongs to another account", statusCode: 403);
+                // Hide a private repo's existence: if the writer can't even read it, answer 404 (same as a
+                // non-existent name), never 403. A 403 only shows for repos they can already see (public or
+                // collaborator), where existence isn't a secret. (#1 — private-repo existence oracle.)
+                return Auth.CanRead(cfg, db, repo, uid, admin)
+                    ? Results.Text("this world belongs to another account", statusCode: 403)
+                    : Results.NotFound();
         }
         else if (cfg.MasterToken is not null && !admin)
             return Results.Text("invalid or missing push token", statusCode: 401);
