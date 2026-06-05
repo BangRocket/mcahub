@@ -2,6 +2,7 @@ bin/
 obj/
 data/
 cache/
+maps/
 .env
 *.user
 .DS_Store

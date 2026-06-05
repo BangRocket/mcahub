@@ -14,8 +14,8 @@ If mcadiff is git for worlds, this is the hub you push them to.
 - **Web UI** — a repo list, each world's branches + backup timeline, a backup view that combines the
   file/chunk/block diff with a "what happened here" grief summary (destroyed / placed / replaced, the
   destruction bounding box, the most-destroyed blocks), a **compare-any-two-backups** view (the same
-  forensics between arbitrary backups), and a **world explorer** (players + find an entity / block entity /
-  sign).
+  forensics between arbitrary backups), a **world explorer** (players + find an entity / block entity /
+  sign), and a **rendered top-down map** per backup (with a before/after pair on the compare page).
 - **In-process** — references the mcadiff core directly, so it renders the real `WorldDiff` / `GriefReport`
   structures instead of scraping CLI text.
 - **Accounts (optional)** — OAuth sign-in (GitHub by default, any OAuth2 provider via config), per-user
@@ -113,6 +113,11 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
   explorer (players + `WorldQuery` find).
 - `WorldCache` — materializes a backup to `cache/<repo>/<commit>` once (commits are immutable) so the
   dir-based `WorldQuery` reads a real world without re-checking-out on every page view.
+- `MapRenderer` + `MapCache` — render a top-down surface map of a materialized world to a PNG: per block
+  column, scan the modern (1.18+) `sections`/`block_states` top-down for the first non-air block (decoded
+  via the core's `BlockStateDecoder`), map it to a color, then apply north-facing height shading. Hand-rolled
+  PNG writer (zlib via `ZLibStream` + a CRC32), no image dependency. Cached per immutable commit like the
+  world cache. `dotnet run --project src/McadiffHub -- render <worldDir> <out.png>` renders one offline.
 - `Auth` + `HubDb` — identity and the tiny JSON account store. `Auth` wires the framework's cookie + OAuth
   handlers (no third-party package), splits web identity (cookie) from CLI identity (Bearer PAT), and holds
   the shared `CanRead`/`CanWrite` rules used by both the web pages and the transport. `HubDb` keeps users,
@@ -125,14 +130,14 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
 
 Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, a
 **world explorer** (players + find an entity / block entity / sign, backed by a materialize-once world
-cache), and **accounts** (OAuth sign-in, per-user tokens, public/private worlds, collaborators, teams).
-Natural next steps (some shared with the mcadiff GUI RFC):
+cache), **rendered maps** per backup, and **accounts** (OAuth sign-in, per-user tokens, public/private
+worlds, collaborators, teams). Natural next steps (some shared with the mcadiff GUI RFC):
 
 - Antiforgery tokens on the state-changing POSTs (today they rely on `SameSite=Lax`), and finer roles
   (admin/maintain) beyond read/write.
+- A time-machine **scrubber** over the map sequence, and map thumbnails on the timeline.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
-- A rendered map thumbnail per backup and a time-machine scrubber.
 - Package the mcadiff core as a proper library so the reference isn't a sibling-path coupling.
 
 ## License

@@ -3,6 +3,15 @@ using Microsoft.AspNetCore.HttpOverrides;
 
 LoadDotEnv(Path.Combine(Directory.GetCurrentDirectory(), ".env")); // pull MCAHUB_* / OAuth creds out of a local .env
 
+// Standalone utility: render a world directory's top-down map to a PNG without running the server.
+if (args is ["render", var worldDir, var outPath])
+{
+    byte[] png = MapRenderer.Render(worldDir, out MapInfo mi);
+    File.WriteAllBytes(outPath, png);
+    Console.WriteLine($"rendered {mi.Width}x{mi.Height} from {mi.Chunks} chunks{(mi.Truncated ? " (truncated)" : "")} -> {outPath}");
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Default to a friendly local port unless the host overrides ASPNETCORE_URLS.
@@ -12,10 +21,12 @@ if (Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is null && !builder.Co
 string dataDir = builder.Configuration["DataDir"] ?? Environment.GetEnvironmentVariable("MCAHUB_DATA") ?? "data/repos";
 string sibling = Path.GetDirectoryName(Path.GetFullPath(dataDir))!;
 string cacheDir = builder.Configuration["CacheDir"] ?? Environment.GetEnvironmentVariable("MCAHUB_CACHE") ?? Path.Combine(sibling, "cache");
+string mapDir = builder.Configuration["MapDir"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAPS") ?? Path.Combine(sibling, "maps");
 string dbPath = builder.Configuration["DbPath"] ?? Environment.GetEnvironmentVariable("MCAHUB_DB") ?? Path.Combine(sibling, "hub.json");
 
 var store = new RepoStore(dataDir);
 var cache = new WorldCache(cacheDir);
+var maps = new MapCache(mapDir, cache);
 var db = new HubDb(dbPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
 
@@ -39,7 +50,7 @@ if (auth.Accounts)
 
 Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback · /auth/logout · /auth/dev
 Transport.MapTransport(app, store, db, auth); // mcadiff clone/fetch/push under /r/{repo}/…
-Pages.MapPages(app, store, cache, db, auth);  // the web UI (browse + compare + world-state + account)
+Pages.MapPages(app, store, cache, maps, db, auth); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
     : auth.MasterToken is null ? "open push" : "token-gated push";

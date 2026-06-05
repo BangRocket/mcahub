@@ -11,7 +11,7 @@ namespace McadiffHub;
 /// access tokens + per-repo visibility). Private worlds are hidden from anyone but their owner.</summary>
 public static class Pages
 {
-    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, HubDb db, Auth.Config cfg)
+    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo));
@@ -19,6 +19,7 @@ public static class Pages
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
             World(ctx, store, db, cfg, cache, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
+        app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, maps, db, cfg, repo, reff));
 
         if (!cfg.Accounts) return; // account + visibility surfaces only exist when accounts are enabled
 
@@ -276,6 +277,7 @@ public static class Pages
         b.Append($"<h1>Backup {commit[..10]}</h1>");
         b.Append($"""<p class="cmeta">{E(c.Message)}<br><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Signature is not null ? " · ✓ signed" : "")}</span></p>""");
         b.Append($"""<p class="actions"><a href="/r/{E(name)}/world/{commit}">explore this world</a>{(parent is null ? "" : $""" · <a href="/r/{E(name)}/compare/{parent}/{commit}">compare with previous</a>""")}</p>""");
+        b.Append($"""<p class="map"><img src="/r/{E(name)}/map/{commit}.png" alt="top-down map of this backup" loading="lazy"></p>""");
 
         RenderGrief(b, g);
         b.Append("<h2>Changes</h2>");
@@ -296,6 +298,12 @@ public static class Pages
         var sb = new StringBuilder();
         sb.Append($"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p>""");
         sb.Append($"<h1>{ca[..10]} → {cb[..10]}</h1>");
+        sb.Append($"""
+            <div class="maps">
+              <figure><figcaption>before · {ca[..10]}</figcaption><img src="/r/{E(name)}/map/{ca}.png" alt="map before" loading="lazy"></figure>
+              <figure><figcaption>after · {cb[..10]}</figcaption><img src="/r/{E(name)}/map/{cb}.png" alt="map after" loading="lazy"></figure>
+            </div>
+            """);
         RenderGrief(sb, GriefReport.Analyze(diff));
         sb.Append("<h2>Changes</h2>");
         if (!diff.HasDifferences) sb.Append("""<p class="empty">No differences between these backups.</p>""");
@@ -318,6 +326,7 @@ public static class Pages
         var sb = new StringBuilder();
         sb.Append($"""<p class="back"><a href="/r/{E(name)}/commit/{commit}">← backup {commit[..10]}</a></p>""");
         sb.Append($"<h1>World at {commit[..10]}</h1>");
+        sb.Append($"""<p class="map"><img src="/r/{E(name)}/map/{commit}.png" alt="top-down map of this backup" loading="lazy"></p>""");
 
         var players = wq.Players().ToList();
         sb.Append("<h2>Players</h2>");
@@ -349,6 +358,17 @@ public static class Pages
             sb.Append("</ul>");
         }
         return Page($"World {commit[..10]}", sb.ToString(), chip);
+    }
+
+    private static IResult Map(HttpContext ctx, RepoStore store, MapCache maps, HubDb db, Auth.Config cfg, string name, string refName)
+    {
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return Results.NotFound();
+        Repository repo = store.Open(name);
+        string commit;
+        try { commit = repo.ResolveRef(refName); } catch { return Results.NotFound(); }
+        byte[] png = maps.Png(name, repo, commit);
+        ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable"; // a commit's map never changes
+        return Results.Bytes(png, "image/png");
     }
 
     // ---- account ----
