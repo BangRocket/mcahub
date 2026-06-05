@@ -82,6 +82,13 @@ var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks, cache
 var db = new HubDb(dbPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
 
+// Fail closed (#9): never serve open mode (anonymous read+write+create) without an explicit override, or
+// dev-login (passwordless) at all, on a non-loopback interface — the red team's #1 way a public hub is owned.
+string bindUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5080";
+bool allowPublicOpen = (builder.Configuration["IKnowOpenModeIsPublic"] ?? Environment.GetEnvironmentVariable("MCAHUB_I_KNOW_OPEN_MODE_IS_PUBLIC")) is "1" or "true";
+if (StartupGuard.PublicExposureViolation(auth.Accounts, auth.MasterToken, auth.DevLogin, bindUrls, allowPublicOpen) is { } refusal)
+    throw new InvalidOperationException($"mcadiff-hub refusing to start: {refusal}");
+
 Auth.AddAuth(builder, auth, db);             // registers cookie + OAuth schemes (only in accounts mode)
 
 WebApplication app = builder.Build();

@@ -86,6 +86,9 @@ every client shares one bucket).
 The hub runs in one of three modes, chosen by what you configure:
 
 - **Open** *(default — nothing set)*: anonymous, every world public, open push. Great for a trusted LAN.
+  As a safety net, the hub **refuses to start in open mode on a non-loopback bind** unless you set
+  `MCAHUB_I_KNOW_OPEN_MODE_IS_PUBLIC=1` — so you can't accidentally expose anonymous write to the internet.
+  (`MCAHUB_DEV_LOGIN` is refused off-loopback with no override at all.)
 - **Token** *(`MCAHUB_TOKEN` set)*: reads anonymous, writes need `--token <that token>`.
 - **Accounts** *(OAuth configured)*: real users sign in via OAuth; each gets personal access tokens for the
   CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcadiff push/clone` against a

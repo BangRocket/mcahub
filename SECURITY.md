@@ -100,8 +100,11 @@ Honest list of the thinner spots — these are the bugs I'd expect a review to f
 
 ## By-design / out of scope
 
-- **Open mode** (no `MCAHUB_TOKEN`, no OAuth) is intentionally unauthenticated — for a trusted LAN. Not a bug.
-- **`MCAHUB_DEV_LOGIN`** is an insecure eval-only login, gated off by default and loudly labeled.
+- **Open mode** (no `MCAHUB_TOKEN`, no OAuth) is intentionally unauthenticated — for a trusted LAN. The hub
+  now **fails closed**: it refuses to start in open mode on a non-loopback bind unless
+  `MCAHUB_I_KNOW_OPEN_MODE_IS_PUBLIC=1` is set (`StartupGuard`).
+- **`MCAHUB_DEV_LOGIN`** is an insecure eval-only login, gated off by default, loudly labeled, and refused
+  outright (no override) on a non-loopback bind.
 - The hub leans on the **mcadiff core** for NBT parsing, decompression bounds, pack/hash verification, and
   path confinement. Core-level vulnerabilities belong in that repo, but flag the boundary if the hub feeds it
   unsafely.
