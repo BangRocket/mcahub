@@ -90,8 +90,10 @@ Honest list of the thinner spots — these are the bugs I'd expect a review to f
    (the takeover guard) unless `MCAHUB_ADOPT_UNOWNED=1` opens a supervised migration window; master-token
    pushes stamp a `__system__` owner so they're never orphan-claimable, and the hub warns at startup about
    any unowned worlds (`Transport.Write` → `HubDb.EnsureRepo`). Was a takeover vector pre-#6.
-5. **Master token = full admin bypass** (`MCAHUB_TOKEN`). Single shared secret; if it leaks, game over. No
-   rotation, no scoping.
+5. **Master token = full admin bypass** (`MCAHUB_TOKEN`). A single shared secret that bypasses **all**
+   authorization, so its blast radius is every world. It compares in constant time; it can now be supplied
+   **hashed** (`MCAHUB_TOKEN_SHA256`) to keep the plaintext out of the env, and **rotated without downtime**
+   by listing two hashes during the switch. Still unscoped — treat a leak as full compromise and rotate.
 6. **Account store is a plaintext JSON file** (`hub.json`): usernames, avatars, token *hashes*, grants. Not
    encrypted at rest. Concurrency is a single process-wide lock with atomic tmp+rename writes — check for
    races / partial reads under load.

@@ -89,7 +89,7 @@ Auth.Config auth = Auth.Read(builder.Configuration);
 // dev-login (passwordless) at all, on a non-loopback interface — the red team's #1 way a public hub is owned.
 string bindUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5080";
 bool allowPublicOpen = (builder.Configuration["IKnowOpenModeIsPublic"] ?? Environment.GetEnvironmentVariable("MCAHUB_I_KNOW_OPEN_MODE_IS_PUBLIC")) is "1" or "true";
-if (StartupGuard.PublicExposureViolation(auth.Accounts, auth.MasterToken, auth.DevLogin, bindUrls, allowPublicOpen) is { } refusal)
+if (StartupGuard.PublicExposureViolation(auth.Accounts, auth.HasMaster ? "set" : null, auth.DevLogin, bindUrls, allowPublicOpen) is { } refusal)
     throw new InvalidOperationException($"mcadiff-hub refusing to start: {refusal}");
 
 Auth.AddAuth(builder, auth, db);             // registers cookie + OAuth schemes (only in accounts mode)
@@ -146,7 +146,7 @@ Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUn
 Pages.MapPages(app, store, cache, maps, db, auth, audit); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
-    : auth.MasterToken is null ? "open push" : "token-gated push";
+    : !auth.HasMaster ? "open push" : "token-gated push";
 app.Logger.LogInformation("mcadiff-hub serving worlds from {DataDir} · auth: {Mode}", Path.GetFullPath(dataDir), mode);
 
 // In accounts mode, warn about on-disk worlds with no owner record — they're the claim-on-first-push
