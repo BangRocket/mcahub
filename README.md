@@ -53,6 +53,26 @@ Open <http://localhost:5080> to browse it.
 | Push token | `MCAHUB_TOKEN` | (none) | A shared/master token. In open mode it gates writes; in accounts mode it's an admin bypass. |
 | Bind URL | `ASPNETCORE_URLS` | `http://localhost:5080` | Put it behind a reverse proxy for TLS. |
 
+#### Resource limits (defense-in-depth)
+
+The hub parses and stores attacker-supplied world data, so the heavy paths are bounded. Defaults are
+generous for normal use; lower them on small/shared hosts.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `MCAHUB_MAX_PUSH_BYTES` | `268435456` (256 MiB) | Max push body buffered; larger is rejected with `413` (also raises the Kestrel limit to match). |
+| `MCAHUB_CACHE_MAX_GB` | `10` | Size ceiling for the materialized **world** cache; least-recently-used worlds are evicted past it. |
+| `MCAHUB_MAX_WORLDS_PER_REPO` | `10` | Keep at most this many materialized worlds per repo. |
+| `MCAHUB_MAP_CACHE_MAX_GB` | `2` | Size ceiling for the rendered **map** PNG cache (LRU eviction). |
+| `MCAHUB_MAX_MAPS_PER_REPO` | `100` | Keep at most this many map PNGs per repo. |
+| `MCAHUB_MAX_MANIFEST_ENTRIES` | `100000` | Refuse to materialize a world whose manifest has more file/dir entries (inode-exhaustion guard). |
+| `MCAHUB_MAX_RENDER_CONCURRENCY` | `3` | Max map renders running at once. |
+| `MCAHUB_MAX_RENDER_CHUNKS` | `10000` | Max chunks decoded per render; bigger worlds truncate. |
+| `MCAHUB_RENDER_TIMEOUT_SECONDS` | `30` | Hard server-side deadline for a single map render. |
+
+A full cache evicts oldest-first and, if a single entry exceeds the ceiling, refuses it with a clear
+error rather than silently filling the disk.
+
 ### Auth modes
 
 The hub runs in one of three modes, chosen by what you configure:
