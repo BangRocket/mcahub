@@ -114,12 +114,26 @@ if (auth.Accounts)
     app.UseAuthentication();                  // populates ctx.User from the session cookie (access checks are our own)
 
 Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback · /auth/logout · /auth/dev
-Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle); // mcadiff clone/fetch/push under /r/{repo}/…
+bool adoptUnowned = (app.Configuration["AdoptUnowned"] ?? Environment.GetEnvironmentVariable("MCAHUB_ADOPT_UNOWNED")) is "1" or "true"; // claim-on-first-push of pre-existing unowned repos (#6); default off
+Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned); // mcadiff clone/fetch/push under /r/{repo}/…
 Pages.MapPages(app, store, cache, maps, db, auth); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
     : auth.MasterToken is null ? "open push" : "token-gated push";
 app.Logger.LogInformation("mcadiff-hub serving worlds from {DataDir} · auth: {Mode}", Path.GetFullPath(dataDir), mode);
+
+// In accounts mode, warn about on-disk worlds with no owner record — they're the claim-on-first-push
+// takeover surface during an "enable accounts" migration (#6).
+if (auth.Accounts)
+{
+    List<string> unowned = store.List().Where(r => db.GetRepo(r.Name) is null).Select(r => r.Name).ToList();
+    if (unowned.Count > 0)
+        app.Logger.LogWarning("{Count} world(s) have no owner and are {State}: {Repos}",
+            unowned.Count,
+            adoptUnowned ? "self-adoptable on first push (MCAHUB_ADOPT_UNOWNED=1)" : "read-only to non-admins until an admin adopts them",
+            string.Join(", ", unowned));
+}
+
 app.Run();
 
 // Parse a positive byte count from config/env; null (use the default) for missing or invalid input.

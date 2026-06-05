@@ -29,6 +29,9 @@ public sealed class HubFactory : WebApplicationFactory<Program>
     /// <summary>The master token configured in <see cref="HubMode.Token"/> mode.</summary>
     public string MasterToken { get; }
 
+    /// <summary>The repo data directory, so a test can seed an on-disk repo (e.g. a pre-accounts world).</summary>
+    public string DataDir => Path.Combine(_root, "repos");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(_root);
