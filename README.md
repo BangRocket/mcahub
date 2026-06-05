@@ -95,6 +95,9 @@ The hub runs in one of three modes, chosen by what you configure:
 - **Accounts** *(OAuth configured)*: real users sign in via OAuth; each gets personal access tokens for the
   CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcadiff push/clone` against a
   private world uses a personal access token (mint one at `/account`) — exactly how GitHub handles `git push`.
+  Tokens carry a **scope** (`read` = clone/fetch, `write` = + push), an optional **expiry**, and can be
+  **regenerated** (rotated) or wiped with **"sign out everywhere"** (revokes all tokens and invalidates
+  every web session).
   An owner shares a private world by adding **collaborators** on the world's page, or by granting a **team**
   (a named group managed at `/teams`) — every member inherits the team's role. Roles form a ladder:
   **read** (browse/clone) → **write** (+ push) → **maintain** (+ change visibility) → **admin** (+ manage

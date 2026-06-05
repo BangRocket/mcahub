@@ -34,9 +34,12 @@ public static class Pages
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
-            string label = (await ctx.Request.ReadFormAsync())["label"].ToString();
-            string secret = db.CreateToken(me.Id, label);
-            Log(ctx, audit, "token.create", null, string.IsNullOrWhiteSpace(label) ? "token" : label);
+            IFormCollection form = await ctx.Request.ReadFormAsync();
+            string label = form["label"].ToString();
+            string scope = form["scope"].ToString() == "read" ? "read" : "write";
+            string? expiresAt = ExpiryFromDays(form["expires"].ToString());
+            string secret = db.CreateToken(me.Id, label, scope, expiresAt);
+            Log(ctx, audit, "token.create", null, $"{(string.IsNullOrWhiteSpace(label) ? "token" : label)} ({scope}{(expiresAt is null ? "" : ", expires " + expiresAt[..10])})");
             return Account(ctx, store, db, cfg, fresh: secret);
         });
         app.MapPost("/account/tokens/revoke", async (HttpContext ctx) =>
@@ -48,6 +51,27 @@ public static class Pages
                 if (db.RevokeToken(me.Id, prefix)) Log(ctx, audit, "token.revoke", null, prefix);
             }
             return Results.Redirect("/account");
+        });
+        app.MapPost("/account/tokens/regenerate", async (HttpContext ctx) =>
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
+            string prefix = (await ctx.Request.ReadFormAsync())["prefix"].ToString();
+            string? fresh = db.RegenerateToken(me.Id, prefix);
+            if (fresh is null) return Results.Redirect("/account");
+            Log(ctx, audit, "token.regenerate", null, prefix);
+            return Account(ctx, store, db, cfg, fresh: fresh);
+        });
+        app.MapPost("/account/sign-out-everywhere", async (HttpContext ctx) =>
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me)
+            {
+                int n = db.RevokeAllTokens(me.Id);
+                db.BumpEpoch(me.Id); // invalidates every web session (incl. this one) on its next request
+                Log(ctx, audit, "session.revoke-all", null, $"revoked {n} token(s) + all sessions");
+            }
+            return Results.Redirect("/");
         });
         app.MapPost("/r/{repo}/settings", async (string repo, HttpContext ctx) =>
         {
@@ -161,6 +185,10 @@ public static class Pages
     /// <summary>Record a web mutation in the audit trail (#16): actor login, action, repo, detail, IP.</summary>
     private static void Log(HttpContext ctx, AuditLog audit, string action, string? repo, string detail) =>
         audit.Append(Auth.Current(ctx)?.Login ?? "?", action, repo, detail, "web", ctx.Connection.RemoteIpAddress?.ToString());
+
+    /// <summary>A token-create "expires in N days" field → an absolute ISO timestamp, or null for no expiry.</summary>
+    private static string? ExpiryFromDays(string days) =>
+        int.TryParse(days, out int d) && d > 0 ? DateTimeOffset.UtcNow.AddDays(d).ToString("o") : null;
 
     private static IResult Teams(HttpContext ctx, HubDb db, Auth.Config cfg)
     {
@@ -525,14 +553,24 @@ public static class Pages
         {
             b.Append("<ul class=\"repos\">");
             foreach (TokenInfo t in tokens)
-                b.Append($"""<li><code>{E(t.Prefix)}…</code> <span class="cmsg">{E(t.Label)}</span><span class="meta">created {When(t.CreatedAt)}{(t.LastUsedAt is null ? " · never used" : $" · last used {When(t.LastUsedAt)}")}</span><form class="revoke" method="post" action="/account/tokens/revoke">{Auth.CsrfField(ctx)}<input type="hidden" name="prefix" value="{E(t.Prefix)}"><button>revoke</button></form></li>""");
+            {
+                bool expired = t.ExpiresAt is { } x && DateTimeOffset.TryParse(x, out var xd) && xd <= DateTimeOffset.UtcNow;
+                string expiry = t.ExpiresAt is null ? "" : expired ? " · <span class=\"vis vis-private\">expired</span>" : $" · expires {When(t.ExpiresAt)}";
+                b.Append($"""<li><code>{E(t.Prefix)}…</code> <span class="cmsg">{E(t.Label)}</span> <span class="role role-{E(t.Scope)}">{E(t.Scope)}</span><span class="meta">created {When(t.CreatedAt)}{(t.LastUsedAt is null ? " · never used" : $" · last used {When(t.LastUsedAt)}")}{expiry}</span><form class="revoke" method="post" action="/account/tokens/regenerate">{Auth.CsrfField(ctx)}<input type="hidden" name="prefix" value="{E(t.Prefix)}"><button>regenerate</button></form><form class="revoke" method="post" action="/account/tokens/revoke">{Auth.CsrfField(ctx)}<input type="hidden" name="prefix" value="{E(t.Prefix)}"><button>revoke</button></form></li>""");
+            }
             b.Append("</ul>");
         }
         b.Append($"""
             <form class="find" method="post" action="/account/tokens">
               {Auth.CsrfField(ctx)}
               <input name="label" placeholder="label — laptop, backup-server…">
+              <select name="scope"><option value="write">write</option><option value="read">read</option></select>
+              <input name="expires" type="number" min="1" placeholder="expires in N days (optional)">
               <button>Create token</button>
+            </form>
+            <form class="settings" method="post" action="/account/sign-out-everywhere" data-confirm="Sign out everywhere? This revokes all your tokens and signs out every session.">
+              {Auth.CsrfField(ctx)}
+              <button>Sign out everywhere</button>
             </form>
             """);
 

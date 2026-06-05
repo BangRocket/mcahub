@@ -83,6 +83,16 @@ public static class Auth
                 o.LogoutPath = "/auth/logout";
                 o.ExpireTimeSpan = TimeSpan.FromDays(30);
                 o.SlidingExpiration = true;
+                // "Sign out everywhere": reject any session whose epoch is behind the user's current epoch (#18).
+                o.Events.OnValidatePrincipal = async context =>
+                {
+                    if (context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier) is { } uid
+                        && (context.Principal.FindFirstValue("epoch") ?? "0") != (db.GetUser(uid)?.Epoch ?? 0).ToString())
+                    {
+                        context.RejectPrincipal();
+                        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    }
+                };
             });
 
         if (cfg.Oauth)
@@ -192,15 +202,15 @@ public static class Auth
     /// <summary>Resolve a request's Bearer token. <c>admin</c> = the configured master token;
     /// otherwise a per-user PAT. Returns null userId+admin=false for anonymous; sets <paramref name="badToken"/>
     /// when a token was presented but matched nothing.</summary>
-    public static (string? userId, bool admin) Identify(HttpRequest req, Config cfg, HubDb db, out bool badToken)
+    public static (string? userId, bool admin, string? scope) Identify(HttpRequest req, Config cfg, HubDb db, out bool badToken)
     {
         badToken = false;
         string? token = Bearer(req);
-        if (token is null) return (null, false);
-        if (IsMasterToken(cfg, token)) return (null, admin: true);
-        string? uid = cfg.Accounts ? db.ResolveToken(token) : null;
-        if (uid is null) badToken = true;
-        return (uid, false);
+        if (token is null) return (null, false, null);
+        if (IsMasterToken(cfg, token)) return (null, admin: true, null); // master = full admin, no scope limit
+        TokenAuth? auth = cfg.Accounts ? db.ResolveToken(token) : null;
+        if (auth is null) { badToken = true; return (null, false, null); } // unknown or expired
+        return (auth.UserId, false, auth.Scope);
     }
 
     /// <summary>Constant-time match of a presented token against the configured master secret — the
@@ -287,6 +297,7 @@ public static class Auth
         new(ClaimTypes.NameIdentifier, u.Id),
         new(ClaimTypes.Name, u.Login),
         new("avatar", u.Avatar),
+        new("epoch", u.Epoch.ToString()), // bumped by "sign out everywhere"; checked on every request
     ];
 
     private static string? Str(JsonElement o, string name) =>

@@ -27,15 +27,34 @@ internal static class Accounts
         return c;
     }
 
-    /// <summary>Mint a personal access token for the signed-in user and return its plaintext.</summary>
-    public static async Task<string> MintTokenAsync(HttpClient signedIn)
+    /// <summary>Mint a personal access token (default write scope) for the signed-in user; returns its plaintext.</summary>
+    public static async Task<string> MintTokenAsync(HttpClient signedIn, string scope = "write")
     {
         string csrf = Csrf(await GetStringAsync(signedIn, "/account"));
-        HttpResponseMessage resp = await signedIn.PostAsync("/account/tokens", Form(("__RequestVerificationToken", csrf), ("label", "test")));
+        HttpResponseMessage resp = await signedIn.PostAsync("/account/tokens",
+            Form(("__RequestVerificationToken", csrf), ("label", "test"), ("scope", scope)));
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         Match m = TokenRe.Match(await resp.Content.ReadAsStringAsync());
         Assert.True(m.Success, "fresh token not found in /account response");
         return m.Groups[1].Value;
+    }
+
+    /// <summary>Regenerate a token by prefix and return the new plaintext.</summary>
+    public static async Task<string> RegenerateAsync(HttpClient signedIn, string prefix)
+    {
+        string csrf = Csrf(await GetStringAsync(signedIn, "/account"));
+        HttpResponseMessage resp = await signedIn.PostAsync("/account/tokens/regenerate",
+            Form(("__RequestVerificationToken", csrf), ("prefix", prefix)));
+        Match m = TokenRe.Match(await resp.Content.ReadAsStringAsync());
+        Assert.True(m.Success, "regenerated token not found");
+        return m.Groups[1].Value;
+    }
+
+    /// <summary>Trigger "sign out everywhere" for the signed-in user.</summary>
+    public static async Task SignOutEverywhereAsync(HttpClient signedIn)
+    {
+        string csrf = Csrf(await GetStringAsync(signedIn, "/account"));
+        await signedIn.PostAsync("/account/sign-out-everywhere", Form(("__RequestVerificationToken", csrf)));
     }
 
     /// <summary>Create + claim a repo as the token's owner. The first authenticated write to a new name
