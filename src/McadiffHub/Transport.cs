@@ -85,7 +85,7 @@ public static class Transport
     /// token to guess (accounts or master-token mode), so an open-mode client can't lock itself out.</summary>
     private static void RecordToken(HttpRequest req, Auth.Config cfg, AuthThrottle throttle, bool badToken)
     {
-        if (cfg.Accounts || cfg.MasterToken is not null)
+        if (cfg.Accounts || cfg.HasMaster)
             throttle.OnResult(req.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown", badToken);
     }
 
@@ -115,7 +115,7 @@ public static class Transport
                 // (ownership-takeover guard). Only genuinely new names auto-create. (#6)
                 return Results.Text("this world has no owner (it predates accounts); an admin must adopt it — set MCAHUB_ADOPT_UNOWNED=1 to allow self-adoption", statusCode: 403);
         }
-        else if (cfg.MasterToken is not null && !admin)
+        else if (cfg.HasMaster && !admin)
             return Results.Text("invalid or missing push token", statusCode: 401);
 
         string actor = uid ?? (admin ? SystemOwner : "anon");

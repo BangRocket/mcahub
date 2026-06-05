@@ -23,7 +23,11 @@ public static class Auth
         bool Accounts, bool Oauth, bool DevLogin, string Provider,
         string? ClientId, string? ClientSecret,
         string AuthUrl, string TokenUrl, string UserUrl, string Scope,
-        string? MasterToken);
+        string? MasterPlaintext, IReadOnlyList<string> MasterHashes)
+    {
+        /// <summary>Whether a master/admin token is configured at all (plaintext or hashed).</summary>
+        public bool HasMaster => MasterPlaintext is not null || MasterHashes.Count > 0;
+    }
 
     public static Config Read(IConfiguration c)
     {
@@ -36,6 +40,10 @@ public static class Auth
         bool oauth = clientId is { Length: > 0 } && clientSecret is { Length: > 0 };
         bool dev = Flag("DevLogin", "MCAHUB_DEV_LOGIN");
         string? master = V("PushToken", "MCAHUB_TOKEN");
+        string? hashesRaw = V("TokenSha256", "MCAHUB_TOKEN_SHA256");
+        string[] hashes = hashesRaw is { Length: > 0 }
+            ? hashesRaw.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : [];
         return new Config(
             Accounts: oauth || dev,
             Oauth: oauth,
@@ -47,7 +55,8 @@ public static class Auth
             TokenUrl: V("OAuthTokenUrl", "MCAHUB_OAUTH_TOKEN_URL") ?? "https://github.com/login/oauth/access_token",
             UserUrl: V("OAuthUserUrl", "MCAHUB_OAUTH_USER_URL") ?? "https://api.github.com/user",
             Scope: V("OAuthScope", "MCAHUB_OAUTH_SCOPE") ?? "read:user",
-            MasterToken: master is { Length: > 0 } ? master : null);
+            MasterPlaintext: master is { Length: > 0 } ? master : null,
+            MasterHashes: hashes);
     }
 
     // ---- service wiring ----
@@ -188,12 +197,36 @@ public static class Auth
         badToken = false;
         string? token = Bearer(req);
         if (token is null) return (null, false);
-        if (cfg.MasterToken is not null &&
-            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(token), Encoding.UTF8.GetBytes(cfg.MasterToken)))
-            return (null, admin: true);
+        if (IsMasterToken(cfg, token)) return (null, admin: true);
         string? uid = cfg.Accounts ? db.ResolveToken(token) : null;
         if (uid is null) badToken = true;
         return (uid, false);
+    }
+
+    /// <summary>Constant-time match of a presented token against the configured master secret — the
+    /// plaintext <c>MCAHUB_TOKEN</c> and/or any SHA-256 hex in <c>MCAHUB_TOKEN_SHA256</c>. Listing more
+    /// than one hash lets you rotate the secret without downtime (both are valid during the window), and
+    /// the hashed form keeps the plaintext out of the environment at rest.</summary>
+    public static bool IsMasterToken(Config cfg, string presented)
+    {
+        if (cfg.MasterPlaintext is { } pt &&
+            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(pt)))
+            return true;
+        if (cfg.MasterHashes.Count == 0) return false;
+        byte[] presentedHash = SHA256.HashData(Encoding.UTF8.GetBytes(presented));
+        bool match = false;
+        foreach (string hex in cfg.MasterHashes)
+        {
+            byte[]? configured = TryHex(hex);
+            if (configured is { Length: 32 } && CryptographicOperations.FixedTimeEquals(presentedHash, configured))
+                match = true; // don't early-return: keep the comparison count independent of which hash matched
+        }
+        return match;
+    }
+
+    private static byte[]? TryHex(string s)
+    {
+        try { return Convert.FromHexString(s); } catch { return null; }
     }
 
     // ---- CSRF (antiforgery) for the cookie-authenticated web forms ----

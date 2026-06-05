@@ -27,12 +27,16 @@ public class AuthReadTests
     [Fact]
     public void Empty_push_token_is_treated_as_unset()
     {
-        Assert.Null(Read(("PushToken", "")).MasterToken);
+        Auth.Config cfg = Read(("PushToken", ""));
+        Assert.Null(cfg.MasterPlaintext);
+        Assert.False(cfg.HasMaster);
     }
 
     [Fact]
     public void Push_token_is_read_from_configuration()
     {
-        Assert.Equal("secret", Read(("PushToken", "secret")).MasterToken);
+        Auth.Config cfg = Read(("PushToken", "secret"));
+        Assert.Equal("secret", cfg.MasterPlaintext);
+        Assert.True(cfg.HasMaster);
     }
 }

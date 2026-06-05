@@ -52,6 +52,7 @@ Open <http://localhost:5080> to browse it.
 | Account DB | `MCAHUB_DB` | sibling `hub.json` | Users, hashed tokens, repo ownership/visibility. |
 | Audit log | `MCAHUB_AUDIT` | sibling `audit.jsonl` | Append-only trail of role/visibility/ownership/ref/token changes; owners see a per-world history at `/r/<name>/audit`. |
 | Push token | `MCAHUB_TOKEN` | (none) | A shared/master token. In open mode it gates writes; in accounts mode it's an admin bypass. |
+| Push token (hashed) | `MCAHUB_TOKEN_SHA256` | (none) | SHA-256 hex of the master token(s) — keeps the plaintext out of the env. Accepts a comma/space list so you can **rotate without downtime**: add the new hash, switch clients, then drop the old one. |
 | Bind URL | `ASPNETCORE_URLS` | `http://localhost:5080` | Put it behind a reverse proxy for TLS. |
 
 #### Resource limits (defense-in-depth)
