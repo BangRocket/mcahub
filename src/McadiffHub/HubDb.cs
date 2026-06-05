@@ -288,8 +288,18 @@ public sealed class HubDb
     {
         string tmp = _path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllBytes(tmp, JsonSerializer.SerializeToUtf8Bytes(_db, Json));
-        File.Move(tmp, _path, overwrite: true); // atomic publish; a torn write never becomes the live db
+        try
+        {
+            File.WriteAllBytes(tmp, JsonSerializer.SerializeToUtf8Bytes(_db, Json));
+            File.Move(tmp, _path, overwrite: true); // atomic publish; a torn write never becomes the live db
+        }
+        catch (Exception e)
+        {
+            // Don't leave a stray temp file (e.g. on a full disk); the live db is untouched (never torn),
+            // and we surface the failure clearly instead of silently dropping the mutation.
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+            throw new IOException($"failed to persist the account database to {_path} (disk full?): {e.Message}", e);
+        }
     }
 
     private static string Sha(string s) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));

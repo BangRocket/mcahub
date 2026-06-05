@@ -36,9 +36,21 @@ int maxRenderChunks = (int)(ParsePositiveLong(builder.Configuration["MaxRenderCh
 TimeSpan renderTimeout = TimeSpan.FromSeconds(ParsePositiveLong(builder.Configuration["RenderTimeoutSeconds"] ?? Environment.GetEnvironmentVariable("MCAHUB_RENDER_TIMEOUT_SECONDS")) ?? 30);
 builder.Services.AddRequestTimeouts(o => o.AddPolicy(Pages.RenderTimeoutPolicy, renderTimeout));
 
+// Bound the on-disk caches so a hostile or just-busy pusher can't fill the disk (which would also break
+// the account store's atomic write): a global byte ceiling + per-repo count cap for each, plus a cap on
+// how many filesystem entries one world manifest may materialize (inode-exhaustion guard).
+long CacheGb(string key, string env, long def) => (ParsePositiveLong(builder.Configuration[key] ?? Environment.GetEnvironmentVariable(env)) ?? def) * 1024L * 1024 * 1024;
+int CacheInt(string key, string env, int def) => (int)(ParsePositiveLong(builder.Configuration[key] ?? Environment.GetEnvironmentVariable(env)) ?? def);
+var cacheLimits = new CacheLimits(
+    WorldBytes: CacheGb("CacheMaxGb", "MCAHUB_CACHE_MAX_GB", 10),
+    WorldsPerRepo: CacheInt("MaxWorldsPerRepo", "MCAHUB_MAX_WORLDS_PER_REPO", 10),
+    MapBytes: CacheGb("MapCacheMaxGb", "MCAHUB_MAP_CACHE_MAX_GB", 2),
+    MapsPerRepo: CacheInt("MaxMapsPerRepo", "MCAHUB_MAX_MAPS_PER_REPO", 100),
+    ManifestEntries: CacheInt("MaxManifestEntries", "MCAHUB_MAX_MANIFEST_ENTRIES", 100_000));
+
 var store = new RepoStore(dataDir);
-var cache = new WorldCache(cacheDir);
-var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks);
+var cache = new WorldCache(cacheDir, cacheLimits);
+var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks, cacheLimits);
 var db = new HubDb(dbPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
 
