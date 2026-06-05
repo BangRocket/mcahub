@@ -1,0 +1,30 @@
+using McaDiff.Repo;
+
+namespace McadiffHub;
+
+/// <summary>
+/// Materializes a backup's world to disk so the dir-based queries (<c>WorldQuery</c>) can read it.
+/// A commit is immutable, so once materialized under <c>cache/&lt;repo&gt;/&lt;commit&gt;</c> it's a
+/// permanent valid cache — the expensive checkout happens once per backup, not per page view.
+/// </summary>
+public sealed class WorldCache(string cacheDir)
+{
+    private readonly string _root = Path.GetFullPath(cacheDir);
+    private readonly object _lock = new();
+
+    public string Materialize(string repoName, Repository repo, string commit)
+    {
+        string dir = Path.Combine(_root, repoName, commit);
+        if (Ready(dir)) return dir;
+        lock (_lock)
+        {
+            if (Ready(dir)) return dir;
+            string tmp = dir + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+            Checkout.Materialize(repo, repo.ReadManifest(repo.ReadCommit(commit).Tree), tmp, prune: false);
+            Directory.Move(tmp, dir); // atomic-ish publish so a half-materialize is never seen as ready
+            return dir;
+        }
+    }
+
+    private static bool Ready(string dir) => Directory.Exists(dir) && Directory.EnumerateFileSystemEntries(dir).Any();
+}

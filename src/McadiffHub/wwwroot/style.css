@@ -62,3 +62,17 @@ ul.changes li { font-family: ui-monospace, monospace; font-size: 12.5px; padding
 .st-modified { background: #1f2937; color: var(--amber); }
 .st-added { background: #11271b; color: var(--green); }
 .st-removed { background: #2a1416; color: var(--red); }
+
+.actions { font-size: 13px; }
+.actions a { color: var(--link); }
+ol.timeline li .actions { flex-basis: 100%; }
+p.actions { margin: 0 0 16px; }
+
+form.find { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+form.find select, form.find input, form.find button {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 10px; font: inherit;
+}
+form.find input { flex: 1; min-width: 200px; }
+form.find button { cursor: pointer; font-weight: 600; }
+form.find button:hover { border-color: var(--link); }
