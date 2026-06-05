@@ -16,11 +16,14 @@ public sealed class HubFactory : WebApplicationFactory<Program>
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "mcahub-test-" + Guid.NewGuid().ToString("N")[..12]);
     private readonly HubMode _mode;
+    private readonly IEnumerable<KeyValuePair<string, string>>? _settings;
 
-    public HubFactory(HubMode mode = HubMode.Open, string masterToken = "test-master-token")
+    public HubFactory(HubMode mode = HubMode.Open, string masterToken = "test-master-token",
+        IEnumerable<KeyValuePair<string, string>>? settings = null)
     {
         _mode = mode;
         MasterToken = masterToken;
+        _settings = settings;
     }
 
     /// <summary>The master token configured in <see cref="HubMode.Token"/> mode.</summary>
@@ -40,6 +43,11 @@ public sealed class HubFactory : WebApplicationFactory<Program>
         // Explicit so ambient env can't flip the mode.
         builder.UseSetting("DevLogin", _mode == HubMode.Accounts ? "1" : "0");
         builder.UseSetting("PushToken", _mode == HubMode.Token ? MasterToken : "");
+
+        // Per-test overrides (size caps, rate limits, …) applied last so they win.
+        if (_settings is not null)
+            foreach (KeyValuePair<string, string> kv in _settings)
+                builder.UseSetting(kv.Key, kv.Value);
     }
 
     protected override void Dispose(bool disposing)
