@@ -19,8 +19,9 @@ If mcadiff is git for worlds, this is the hub you push them to.
 - **In-process** — references the mcadiff core directly, so it renders the real `WorldDiff` / `GriefReport`
   structures instead of scraping CLI text.
 - **Accounts (optional)** — OAuth sign-in (GitHub by default, any OAuth2 provider via config), per-user
-  **personal access tokens** for the CLI, and **public/private** worlds. Off by default; the hub stays a
-  zero-config local tool until you hand it an OAuth app.
+  **personal access tokens** for the CLI, **public/private** worlds, and sharing via per-repo
+  **collaborators** (read/write) and **teams** (grant a whole group at once). Off by default; the hub stays
+  a zero-config local tool until you hand it an OAuth app.
 
 ## Run it
 
@@ -60,6 +61,9 @@ The hub runs in one of three modes, chosen by what you configure:
 - **Accounts** *(OAuth configured)*: real users sign in via OAuth; each gets personal access tokens for the
   CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcadiff push/clone` against a
   private world uses a personal access token (mint one at `/account`) — exactly how GitHub handles `git push`.
+  An owner shares a private world by adding **collaborators** (read or write) on the world's page, or by
+  granting a **team** (a named group managed at `/teams`) — every member inherits the team's role. Effective
+  access is the strongest of owner, direct collaborator, and any team grant.
 
 | Accounts env var | Default | Purpose |
 |---|---|---|
@@ -112,16 +116,20 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
 - `Auth` + `HubDb` — identity and the tiny JSON account store. `Auth` wires the framework's cookie + OAuth
   handlers (no third-party package), splits web identity (cookie) from CLI identity (Bearer PAT), and holds
   the shared `CanRead`/`CanWrite` rules used by both the web pages and the transport. `HubDb` keeps users,
-  **hashed** tokens (the plaintext is shown once and never stored), and per-repo owner/visibility.
+  **hashed** tokens (the plaintext is shown once and never stored), per-repo owner/visibility, collaborator
+  grants, and teams + team grants. `HubDb.RoleOf` resolves a user's effective role on a repo
+  (owner > write > read > none) by folding the owner, any direct collaborator grant, and any team grant the
+  user inherits — both `CanRead`/`CanWrite` and the UI go through it, so they can't drift.
 
 ## Status & roadmap
 
 Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, a
 **world explorer** (players + find an entity / block entity / sign, backed by a materialize-once world
-cache), and **accounts** (OAuth sign-in, per-user tokens, public/private worlds). Natural next steps
-(some shared with the mcadiff GUI RFC):
+cache), and **accounts** (OAuth sign-in, per-user tokens, public/private worlds, collaborators, teams).
+Natural next steps (some shared with the mcadiff GUI RFC):
 
-- Collaborators / teams (v1 access control is owner-only beyond public read) and antiforgery tokens.
+- Antiforgery tokens on the state-changing POSTs (today they rely on `SameSite=Lax`), and finer roles
+  (admin/maintain) beyond read/write.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
 - A rendered map thumbnail per backup and a time-machine scrubber.

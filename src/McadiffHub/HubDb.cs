@@ -144,16 +144,25 @@ public sealed class HubDb
     // ---- collaborators ----
 
     /// <summary>A user's effective role on a repo: <c>owner</c>, <c>write</c>, <c>read</c>, or null
-    /// (no access). The owner outranks any collaborator grant.</summary>
+    /// (no access). The owner outranks everything; otherwise the strongest of any direct collaborator
+    /// grant and any team grant the user inherits through membership.</summary>
     public string? RoleOf(string repo, string? userId)
     {
         if (userId is null) return null;
         lock (_lock)
         {
             if (_db.Repos.FirstOrDefault(r => r.Name == repo) is { } m && m.OwnerId == userId) return "owner";
-            return _db.Collabs.FirstOrDefault(c => c.Repo == repo && c.UserId == userId)?.Role;
+
+            int best = Rank(_db.Collabs.FirstOrDefault(c => c.Repo == repo && c.UserId == userId)?.Role);
+            foreach (TeamGrant g in _db.TeamGrants.Where(g => g.Repo == repo))
+                if (_db.Teams.FirstOrDefault(t => t.Name == g.TeamName) is { } t && t.Members.Contains(userId))
+                    best = Math.Max(best, Rank(g.Role));
+
+            return best switch { 2 => "write", 1 => "read", _ => null };
         }
     }
+
+    private static int Rank(string? role) => role switch { "write" => 2, "read" => 1, _ => 0 };
 
     public IReadOnlyList<Collab> CollabsOf(string repo)
     {
@@ -186,6 +195,92 @@ public sealed class HubDb
         }
     }
 
+    // ---- teams ----
+
+    public Team? GetTeam(string name)
+    {
+        lock (_lock) return _db.Teams.FirstOrDefault(t => t.Name == name);
+    }
+
+    /// <summary>Create a team owned by <paramref name="ownerId"/> (who is also its first member).
+    /// No-op if the name is taken.</summary>
+    public Team? CreateTeam(string name, string ownerId)
+    {
+        lock (_lock)
+        {
+            if (_db.Teams.Any(t => t.Name == name)) return null;
+            var team = new Team(name, ownerId, [ownerId], Now());
+            _db.Teams.Add(team);
+            Save();
+            return team;
+        }
+    }
+
+    /// <summary>Teams the user owns or belongs to.</summary>
+    public IReadOnlyList<Team> TeamsForUser(string userId)
+    {
+        lock (_lock) return _db.Teams.Where(t => t.OwnerId == userId || t.Members.Contains(userId)).ToList();
+    }
+
+    public void AddTeamMember(string name, string userId)
+    {
+        lock (_lock)
+        {
+            if (_db.Teams.FirstOrDefault(t => t.Name == name) is { } t && !t.Members.Contains(userId))
+            {
+                t.Members.Add(userId);
+                Save();
+            }
+        }
+    }
+
+    public void RemoveTeamMember(string name, string userId)
+    {
+        lock (_lock)
+        {
+            // the owner is always a member; don't strand a team with no owner-member
+            if (_db.Teams.FirstOrDefault(t => t.Name == name) is { } t && userId != t.OwnerId && t.Members.Remove(userId))
+                Save();
+        }
+    }
+
+    public void DeleteTeam(string name)
+    {
+        lock (_lock)
+        {
+            bool changed = _db.Teams.RemoveAll(t => t.Name == name) > 0;
+            changed |= _db.TeamGrants.RemoveAll(g => g.TeamName == name) > 0; // a deleted team grants nothing
+            if (changed) Save();
+        }
+    }
+
+    // ---- team → repo grants ----
+
+    public IReadOnlyList<TeamGrant> TeamGrantsOf(string repo)
+    {
+        lock (_lock) return _db.TeamGrants.Where(g => g.Repo == repo).ToList();
+    }
+
+    public void SetTeamGrant(string repo, string team, string role)
+    {
+        if (role is not ("read" or "write")) return;
+        lock (_lock)
+        {
+            int i = _db.TeamGrants.FindIndex(g => g.Repo == repo && g.TeamName == team);
+            if (i >= 0) _db.TeamGrants[i] = _db.TeamGrants[i] with { Role = role };
+            else _db.TeamGrants.Add(new TeamGrant(repo, team, role));
+            Save();
+        }
+    }
+
+    public void RemoveTeamGrant(string repo, string team)
+    {
+        lock (_lock)
+        {
+            if (_db.TeamGrants.RemoveAll(g => g.Repo == repo && g.TeamName == team) > 0) Save();
+        }
+    }
+
     // ---- helpers ----
 
     private void Save()
@@ -207,6 +302,8 @@ public sealed class HubDb
         public List<TokenRecord> Tokens { get; init; } = [];
         public List<HubRepoMeta> Repos { get; init; } = [];
         public List<Collab> Collabs { get; init; } = [];
+        public List<Team> Teams { get; init; } = [];
+        public List<TeamGrant> TeamGrants { get; init; } = [];
     }
 
     private sealed record TokenRecord(string Hash, string Prefix, string UserId, string Label, string CreatedAt, string? LastUsedAt);
@@ -216,3 +313,5 @@ public sealed record HubUser(string Id, string Login, string Name, string Avatar
 public sealed record HubRepoMeta(string Name, string OwnerId, bool Private, string CreatedAt);
 public sealed record TokenInfo(string Prefix, string Label, string CreatedAt, string? LastUsedAt);
 public sealed record Collab(string Repo, string UserId, string Role); // Role: "read" | "write"
+public sealed record Team(string Name, string OwnerId, List<string> Members, string CreatedAt);
+public sealed record TeamGrant(string Repo, string TeamName, string Role); // Role: "read" | "write"

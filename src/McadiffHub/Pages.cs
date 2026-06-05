@@ -60,6 +60,129 @@ public static class Pages
                 db.RemoveCollab(repo, (await ctx.Request.ReadFormAsync())["userId"].ToString());
             return Results.Redirect($"/r/{repo}");
         });
+
+        // ---- teams ----
+        app.MapGet("/teams", (HttpContext ctx) => Teams(ctx, db, cfg));
+        app.MapPost("/teams", async (HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me)
+            {
+                string name = (await ctx.Request.ReadFormAsync())["name"].ToString().Trim();
+                if (!RepoStore.IsValidName(name)) return Results.Redirect("/teams?err=name");
+                if (db.CreateTeam(name, me.Id) is null) return Results.Redirect("/teams?err=taken");
+                return Results.Redirect($"/teams/{name}");
+            }
+            return Results.Redirect("/auth/login");
+        });
+        app.MapGet("/teams/{name}", (string name, HttpContext ctx) => TeamPage(ctx, db, cfg, name));
+        app.MapPost("/teams/{name}/members", async (string name, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetTeam(name) is { } t && t.OwnerId == me.Id)
+            {
+                HubUser? target = db.UserByLogin((await ctx.Request.ReadFormAsync())["login"].ToString().Trim());
+                if (target is null) return Results.Redirect($"/teams/{name}?err=nouser");
+                db.AddTeamMember(name, target.Id);
+            }
+            return Results.Redirect($"/teams/{name}");
+        });
+        app.MapPost("/teams/{name}/members/remove", async (string name, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetTeam(name) is { } t && t.OwnerId == me.Id)
+                db.RemoveTeamMember(name, (await ctx.Request.ReadFormAsync())["userId"].ToString());
+            return Results.Redirect($"/teams/{name}");
+        });
+        app.MapPost("/teams/{name}/delete", (string name, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetTeam(name) is { } t && t.OwnerId == me.Id) db.DeleteTeam(name);
+            return Results.Redirect("/teams");
+        });
+        app.MapPost("/r/{repo}/teams", async (string repo, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            {
+                IFormCollection form = await ctx.Request.ReadFormAsync();
+                string role = form["role"].ToString() is "write" ? "write" : "read";
+                string team = form["team"].ToString().Trim();
+                if (db.GetTeam(team) is null) return Results.Redirect($"/r/{repo}?err=noteam");
+                db.SetTeamGrant(repo, team, role);
+            }
+            return Results.Redirect($"/r/{repo}");
+        });
+        app.MapPost("/r/{repo}/teams/remove", async (string repo, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+                db.RemoveTeamGrant(repo, (await ctx.Request.ReadFormAsync())["team"].ToString());
+            return Results.Redirect($"/r/{repo}");
+        });
+    }
+
+    private static IResult Teams(HttpContext ctx, HubDb db, Auth.Config cfg)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
+
+        var b = new StringBuilder("<h1>Teams</h1>");
+        b.Append("""<p class="meta">Group people, then grant a whole team read or write on a world from its page.</p>""");
+        if (ctx.Request.Query["err"] == "taken") b.Append("""<p class="empty">That team name is taken.</p>""");
+        if (ctx.Request.Query["err"] == "name") b.Append("""<p class="empty">Team names are letters/digits then letters/digits/._- (max 64).</p>""");
+
+        var teams = db.TeamsForUser(me.Id);
+        if (teams.Count == 0) b.Append("""<p class="empty">You're not in any teams yet.</p>""");
+        else
+        {
+            b.Append("<ul class=\"repos\">");
+            foreach (Team t in teams)
+                b.Append($"""<li><a href="/teams/{E(t.Name)}">{E(t.Name)}</a>{(t.OwnerId == me.Id ? """ <span class="role role-owner">owner</span>""" : "")}<span class="meta">{t.Members.Count} member(s)</span></li>""");
+            b.Append("</ul>");
+        }
+        b.Append("""
+            <h2>New team</h2>
+            <form class="find" method="post" action="/teams">
+              <input name="name" placeholder="team name — builders, admins…">
+              <button>Create team</button>
+            </form>
+            """);
+        return Page("Teams", b.ToString(), chip);
+    }
+
+    private static IResult TeamPage(HttpContext ctx, HubDb db, Auth.Config cfg, string name)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
+        if (db.GetTeam(name) is not { } t) return NotFound("team", chip);
+        bool isOwner = t.OwnerId == me.Id;
+        if (!isOwner && !t.Members.Contains(me.Id)) return NotFound("team", chip); // teams are visible to their members
+
+        var b = new StringBuilder();
+        b.Append("""<p class="back"><a href="/teams">← teams</a></p>""");
+        b.Append($"<h1>{E(name)}</h1>");
+        b.Append($"""<p class="meta">owned by {E(db.GetUser(t.OwnerId)?.Login ?? "?")}</p>""");
+        if (isOwner && ctx.Request.Query["err"] == "nouser")
+            b.Append("""<p class="empty">That user hasn't signed in to the hub yet — they need to sign in once before you can add them.</p>""");
+
+        b.Append("<h2>Members</h2><ul class=\"repos\">");
+        foreach (string uid in t.Members)
+        {
+            string remove = isOwner && uid != t.OwnerId
+                ? $"""<form class="revoke" method="post" action="/teams/{E(name)}/members/remove"><input type="hidden" name="userId" value="{E(uid)}"><button>remove</button></form>"""
+                : "";
+            b.Append($"""<li>{E(db.GetUser(uid)?.Login ?? "?")}{(uid == t.OwnerId ? """ <span class="role role-owner">owner</span>""" : "")}{remove}</li>""");
+        }
+        b.Append("</ul>");
+
+        if (isOwner)
+        {
+            b.Append($"""
+                <form class="find" method="post" action="/teams/{E(name)}/members">
+                  <input name="login" placeholder="username — they must have signed in once">
+                  <button>Add member</button>
+                </form>
+                <form class="settings" method="post" action="/teams/{E(name)}/delete" onsubmit="return confirm('Delete team {E(name)}? Its grants are removed.')">
+                  <button>Delete team</button>
+                </form>
+                """);
+        }
+        return Page(name, b.ToString(), chip);
     }
 
     private static IResult Home(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg)
@@ -294,7 +417,8 @@ public static class Pages
         if (m is null) return;
         bool isOwner = me is not null && me.Id == m.OwnerId;
         var collabs = db.CollabsOf(name);
-        if (collabs.Count == 0 && !isOwner) return; // nothing to show and no controls to offer
+        var teamGrants = db.TeamGrantsOf(name);
+        if (collabs.Count == 0 && teamGrants.Count == 0 && !isOwner) return; // nothing to show, no controls to offer
 
         b.Append("<h2>Collaborators</h2>");
         if (isOwner && ctx.Request.Query["err"] == "nouser")
@@ -317,6 +441,32 @@ public static class Pages
                   <input name="login" placeholder="username — they must have signed in once">
                   <select name="role">{Opt("read", "read")}{Opt("write", null)}</select>
                   <button>Add collaborator</button>
+                </form>
+                """);
+
+        if (teamGrants.Count == 0 && !isOwner) return;
+        b.Append("<h2>Teams with access</h2>");
+        if (isOwner && ctx.Request.Query["err"] == "noteam")
+            b.Append("""<p class="empty">No team by that name.</p>""");
+        if (teamGrants.Count > 0)
+        {
+            b.Append("<ul class=\"repos\">");
+            foreach (TeamGrant g in teamGrants)
+            {
+                string remove = isOwner
+                    ? $"""<form class="revoke" method="post" action="/r/{E(name)}/teams/remove"><input type="hidden" name="team" value="{E(g.TeamName)}"><button>remove</button></form>"""
+                    : "";
+                string teamName = db.GetTeam(g.TeamName) is not null ? $"""<a href="/teams/{E(g.TeamName)}">{E(g.TeamName)}</a>""" : E(g.TeamName);
+                b.Append($"""<li>👥 {teamName} <span class="role role-{E(g.Role)}">{E(g.Role)}</span>{remove}</li>""");
+            }
+            b.Append("</ul>");
+        }
+        if (isOwner)
+            b.Append($"""
+                <form class="find" method="post" action="/r/{E(name)}/teams">
+                  <input name="team" placeholder="team name">
+                  <select name="role">{Opt("read", "read")}{Opt("write", null)}</select>
+                  <button>Grant team</button>
                 </form>
                 """);
     }

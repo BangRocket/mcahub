@@ -161,7 +161,7 @@ public static class Auth
         HubUser? u = Current(ctx);
         if (u is null) return """<a class="navlink" href="/auth/login">Sign in</a>""";
         string av = u.Avatar is { Length: > 0 } ? $"""<img class="avatar" src="{Html.E(u.Avatar)}" alt="">""" : "";
-        return $"""<a class="me" href="/account">{av}{Html.E(u.Login)}</a><a class="navlink" href="/auth/logout">Sign out</a>""";
+        return $"""<a class="navlink" href="/teams">Teams</a><a class="me" href="/account">{av}{Html.E(u.Login)}</a><a class="navlink" href="/auth/logout">Sign out</a>""";
     }
 
     // ---- CLI identity (bearer token) ----
