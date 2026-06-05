@@ -291,7 +291,7 @@ public static class Pages
         b.Append($"<h1>Backup {commit[..10]}</h1>");
         b.Append($"""<p class="cmeta">{E(c.Message)}<br><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Signature is not null ? " · ✓ signed" : "")}</span></p>""");
         b.Append($"""<p class="actions"><a href="/r/{E(name)}/world/{commit}">explore this world</a>{(parent is null ? "" : $""" · <a href="/r/{E(name)}/compare/{parent}/{commit}">compare with previous</a>""")}</p>""");
-        b.Append($"""<p class="map"><img src="/r/{E(name)}/map/{commit}.png" alt="top-down map of this backup" loading="lazy"></p>""");
+        b.Append($"""<div class="map">{MapBox($"/r/{E(name)}/map/{commit}.png", "top-down map of this backup")}</div>""");
 
         RenderGrief(b, g);
         b.Append("<h2>Changes</h2>");
@@ -314,8 +314,8 @@ public static class Pages
         sb.Append($"<h1>{ca[..10]} → {cb[..10]}</h1>");
         sb.Append($"""
             <div class="maps">
-              <figure><figcaption>before · {ca[..10]}</figcaption><img src="/r/{E(name)}/map/{ca}.png" alt="map before" loading="lazy"></figure>
-              <figure><figcaption>after · {cb[..10]}</figcaption><img src="/r/{E(name)}/map/{cb}.png" alt="map after" loading="lazy"></figure>
+              <figure><figcaption>before · {ca[..10]}</figcaption>{MapBox($"/r/{E(name)}/map/{ca}.png", "map before")}</figure>
+              <figure><figcaption>after · {cb[..10]}</figcaption>{MapBox($"/r/{E(name)}/map/{cb}.png", "map after")}</figure>
             </div>
             """);
         RenderGrief(sb, GriefReport.Analyze(diff));
@@ -340,7 +340,7 @@ public static class Pages
         var sb = new StringBuilder();
         sb.Append($"""<p class="back"><a href="/r/{E(name)}/commit/{commit}">← backup {commit[..10]}</a></p>""");
         sb.Append($"<h1>World at {commit[..10]}</h1>");
-        sb.Append($"""<p class="map"><img src="/r/{E(name)}/map/{commit}.png" alt="top-down map of this backup" loading="lazy"></p>""");
+        sb.Append($"""<div class="map">{MapBox($"/r/{E(name)}/map/{commit}.png", "top-down map of this backup")}</div>""");
 
         var players = wq.Players().ToList();
         sb.Append("<h2>Players</h2>");
@@ -373,6 +373,15 @@ public static class Pages
         }
         return Page($"World {commit[..10]}", sb.ToString(), chip);
     }
+
+    /// <summary>A map image wrapped in a loading-aware box (the layout's script reveals it once the PNG
+    /// — which can take a few seconds to render cold — finishes loading).</summary>
+    private static string MapBox(string url, string alt) => $"""
+        <div class="map-box">
+          <div class="map-status"><span class="spinner"></span> Generating map…</div>
+          <img src="{url}" alt="{E(alt)}" loading="lazy">
+        </div>
+        """;
 
     private static IResult Map(HttpContext ctx, RepoStore store, MapCache maps, HubDb db, Auth.Config cfg, string name, string refName)
     {
@@ -424,7 +433,7 @@ public static class Pages
     private const string TimeMachineTemplate = """
         <p class="back"><a href="/r/%%NAME%%">← %%NAME%%</a></p>
         <h1>Time machine · %%NAME%%</h1>
-        <p class="map"><img id="tm-map" alt="world map at the selected backup"></p>
+        <div class="map"><div class="map-box"><div class="map-status"><span class="spinner"></span> Generating map…</div><img id="tm-map" alt="world map at the selected backup"></div></div>
         <div class="scrubber">
           <button id="tm-play" type="button">▶ play</button>
           <input id="tm-scrub" type="range" min="0" max="%%MAX%%" value="%%MAX%%" %%DIS%%>
@@ -433,11 +442,15 @@ public static class Pages
         <p class="cmeta" id="tm-cap"></p>
         <script>
         const B = %%DATA%%, repo = %%REPOJSON%%;
-        const img = document.getElementById('tm-map'), cap = document.getElementById('tm-cap'),
-              when = document.getElementById('tm-when'), slider = document.getElementById('tm-scrub'),
-              playBtn = document.getElementById('tm-play');
+        const img = document.getElementById('tm-map'), box = img.closest('.map-box'),
+              cap = document.getElementById('tm-cap'), when = document.getElementById('tm-when'),
+              slider = document.getElementById('tm-scrub'), playBtn = document.getElementById('tm-play');
+        img.addEventListener('load', function(){ box.classList.remove('loading','error'); });
+        img.addEventListener('error', function(){ box.classList.remove('loading'); box.classList.add('error'); box.querySelector('.map-status').textContent = 'Map unavailable'; });
         function show(i){
           const b = B[i]; if(!b) return;
+          box.classList.remove('error'); box.classList.add('loading');
+          box.querySelector('.map-status').textContent = 'Generating map…';
           img.src = '/r/'+repo+'/map/'+b.Hash+'.png';
           cap.textContent = b.Short + ' · ' + b.Msg;
           when.textContent = '#'+(i+1)+'/'+B.length+' · '+b.Author+' · '+b.When;

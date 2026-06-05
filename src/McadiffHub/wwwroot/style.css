@@ -69,17 +69,28 @@ ul.changes li { font-family: ui-monospace, monospace; font-size: 12.5px; padding
 
 /* rendered world maps */
 .map { margin: 16px 0; }
-.map img {
-  width: 100%; max-width: 512px; height: auto; image-rendering: pixelated;
-  border: 1px solid var(--border); border-radius: 8px; background: #11161c; display: block;
-}
+.map .map-box { max-width: 512px; }
 .maps { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
 .maps figure { margin: 0; flex: 1; min-width: 220px; }
 .maps figcaption { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; margin-bottom: 6px; }
-.maps img {
-  width: 100%; height: auto; image-rendering: pixelated;
-  border: 1px solid var(--border); border-radius: 8px; background: #11161c; display: block;
+
+.map-box {
+  position: relative; min-height: 150px; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 8px; background: #11161c;
 }
+.map-box img { width: 100%; height: auto; image-rendering: pixelated; display: block; }
+.map-box.loading img { visibility: hidden; min-height: 150px; }
+.map-status {
+  position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+  gap: 10px; color: var(--muted); font-size: 13px; text-align: center; padding: 12px;
+}
+.map-box.loading .map-status, .map-box.error .map-status { display: flex; }
+.map-box.error .map-status { color: var(--red); }
+.spinner {
+  width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--link);
+  border-radius: 50%; animation: spin .8s linear infinite; flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* time-machine scrubber */
 .scrubber { display: flex; align-items: center; gap: 14px; margin: 4px 0 6px; }

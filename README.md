@@ -123,7 +123,9 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
   column, scan the modern (1.18+) `sections`/`block_states` top-down for the first non-air block (decoded
   via the core's `BlockStateDecoder`), map it to a color, then apply north-facing height shading. Hand-rolled
   PNG writer (zlib via `ZLibStream` + a CRC32), no image dependency. Cached per immutable commit like the
-  world cache. `dotnet run --project src/McadiffHub -- render <worldDir> <out.png>` renders one offline.
+  world cache. A cold render takes a few seconds, so the pages show a "Generating map…" spinner and reveal
+  the image once it loads (the scrubber re-shows it on each step). `dotnet run --project src/McadiffHub --
+  render <worldDir> <out.png>` renders one offline.
 - `Auth` + `HubDb` — identity and the tiny JSON account store. `Auth` wires the framework's cookie + OAuth
   handlers (no third-party package), splits web identity (cookie) from CLI identity (Bearer PAT), and holds
   the shared `CanRead`/`CanWrite` rules used by both the web pages and the transport. `HubDb` keeps users,

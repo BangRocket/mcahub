@@ -32,6 +32,22 @@ public static class Html
         {{body}}
           </main>
           <footer>Self-hosted Minecraft worlds, powered by <code>mcadiff</code>.</footer>
+          <script>
+          // Show a "Generating map…" spinner while a map PNG renders (cold renders take a few seconds),
+          // then reveal the image. No-JS degrades to just showing the image once it loads.
+          (function(){
+            function wire(img){
+              var box = img.closest('.map-box'); if(!box) return;
+              img.addEventListener('load', function(){ box.classList.remove('loading','error'); });
+              img.addEventListener('error', function(){
+                box.classList.remove('loading'); box.classList.add('error');
+                var s = box.querySelector('.map-status'); if(s) s.textContent = 'Map unavailable';
+              });
+              if(img.getAttribute('src') && (!img.complete || img.naturalWidth === 0)) box.classList.add('loading');
+            }
+            document.addEventListener('DOMContentLoaded', function(){ document.querySelectorAll('.map-box img').forEach(wire); });
+          })();
+          </script>
         </body>
         </html>
         """;
