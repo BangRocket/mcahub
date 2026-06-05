@@ -9,7 +9,7 @@ namespace McadiffHub;
 /// A <see cref="RenderGate"/> coalesces concurrent requests for the same map and caps total render
 /// concurrency, so a burst of cold-map requests can't serialize behind one lock or saturate the host.
 /// </summary>
-public sealed class MapCache(string cacheDir, WorldCache worlds, int maxRenderConcurrency)
+public sealed class MapCache(string cacheDir, WorldCache worlds, int maxRenderConcurrency, int maxRenderChunks)
 {
     private readonly string _root = Path.GetFullPath(cacheDir);
     private readonly RenderGate _gate = new(maxRenderConcurrency);
@@ -22,7 +22,7 @@ public sealed class MapCache(string cacheDir, WorldCache worlds, int maxRenderCo
         {
             if (File.Exists(path)) return await File.ReadAllBytesAsync(path, ct); // double-check inside the gate
             string worldDir = worlds.Materialize(repoName, repo, commit, ct);
-            byte[] png = MapRenderer.Render(worldDir, out _, ct);
+            byte[] png = MapRenderer.Render(worldDir, out _, maxRenderChunks, ct);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
             await File.WriteAllBytesAsync(tmp, png, ct);

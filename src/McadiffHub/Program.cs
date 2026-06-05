@@ -32,12 +32,13 @@ builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = maxPushBytes
 // Bound cold map rendering: cap concurrent renders, and give each a hard server-side deadline so a slow
 // (or hostile) world can't tie up a request thread indefinitely. Client disconnects cancel too.
 int renderConcurrency = (int)(ParsePositiveLong(builder.Configuration["MaxRenderConcurrency"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_RENDER_CONCURRENCY")) ?? 3);
+int maxRenderChunks = (int)(ParsePositiveLong(builder.Configuration["MaxRenderChunks"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_RENDER_CHUNKS")) ?? 10_000);
 TimeSpan renderTimeout = TimeSpan.FromSeconds(ParsePositiveLong(builder.Configuration["RenderTimeoutSeconds"] ?? Environment.GetEnvironmentVariable("MCAHUB_RENDER_TIMEOUT_SECONDS")) ?? 30);
 builder.Services.AddRequestTimeouts(o => o.AddPolicy(Pages.RenderTimeoutPolicy, renderTimeout));
 
 var store = new RepoStore(dataDir);
 var cache = new WorldCache(cacheDir);
-var maps = new MapCache(mapDir, cache, renderConcurrency);
+var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks);
 var db = new HubDb(dbPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
 
