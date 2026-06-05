@@ -20,7 +20,7 @@ public static class MapRenderer
     private const int MaxSideChunks = 160; // cap the rendered span at 160×160 chunks (2560px); bigger worlds truncate
     private const int MaxChunks = 30_000;  // and a hard ceiling on chunks decoded per render
 
-    public static byte[] Render(string worldDir, out MapInfo info)
+    public static byte[] Render(string worldDir, out MapInfo info, CancellationToken ct = default)
     {
         string regionDir = Path.Combine(worldDir, "region");
         var surfaces = new Dictionary<ChunkPos, Surface>();
@@ -29,12 +29,14 @@ public static class MapRenderer
         if (Directory.Exists(regionDir))
             foreach (string file in Directory.EnumerateFiles(regionDir, "r.*.mca"))
             {
+                ct.ThrowIfCancellationRequested(); // a client disconnect / request timeout aborts the render
                 RegionFile region;
                 try { region = RegionFile.Open(file); }
                 catch { continue; } // skip an unreadable region rather than fail the whole map
                 foreach (RawChunk raw in region.Chunks)
                 {
                     if (surfaces.Count >= MaxChunks) break;
+                    ct.ThrowIfCancellationRequested();
                     Surface? s = SurfaceOf(raw);
                     if (s is null) continue;
                     surfaces[raw.Pos] = s;
@@ -59,6 +61,7 @@ public static class MapRenderer
         int placed = 0;
         foreach ((ChunkPos pos, Surface s) in surfaces)
         {
+            ct.ThrowIfCancellationRequested();
             int baseCol = (pos.X - minCX) * 16, baseRow = (pos.Z - minCZ) * 16;
             if (baseCol < 0 || baseRow < 0 || baseCol + 16 > w || baseRow + 16 > h) continue; // outside the window
             for (int lz = 0; lz < 16; lz++)
