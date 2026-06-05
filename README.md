@@ -69,9 +69,32 @@ The hub runs in one of three modes, chosen by what you configure:
 | `MCAHUB_OAUTH_SCOPE` | `read:user` | Scopes requested at sign-in. |
 | `MCAHUB_DEV_LOGIN` | (off) | ⚠ Insecure local login at `/auth/dev` for evaluating accounts without an OAuth app. **Never on a public host.** |
 
-Register the OAuth app's callback as `http(s)://<your-host>/auth/callback`. When accounts are on, the first
-authenticated push to an unowned world claims ownership of it (this is how worlds pushed before you enabled
-accounts get adopted).
+When accounts are on, the first authenticated push to an unowned world claims ownership of it (this is how
+worlds pushed before you enabled accounts get adopted).
+
+### Enable GitHub sign-in (quickstart)
+
+1. **Create an OAuth App** — <https://github.com/settings/developers> → *New OAuth App*:
+   - **Homepage URL:** `http://localhost:5080`
+   - **Authorization callback URL:** `http://localhost:5080/auth/callback`
+
+   (The callback host must match how you reach the hub — the redirect URI is derived from the request, so
+   use your real `https://host` in production.)
+2. **Register**, then copy the **Client ID** and *Generate a new client secret*.
+3. **Drop them into `.env`** at the hub root (`cp .env.example .env`, then fill in):
+
+   ```sh
+   MCAHUB_OAUTH_CLIENT_ID=<your client id>
+   MCAHUB_OAUTH_CLIENT_SECRET=<your client secret>
+   ```
+
+   `.env` is gitignored and auto-loaded at startup (your shell environment still wins over it).
+4. **Run** from the hub root: `dotnet run --project src/McadiffHub`. The log should read
+   `auth: accounts (github OAuth)`. Visit <http://localhost:5080>, click **Sign in**, then mint a token at
+   `/account` for `mcadiff push`.
+
+Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback` URL and set
+`MCAHUB_BEHIND_PROXY=1` so the hub honors `X-Forwarded-Proto/Host` and builds an `https` redirect URI.
 
 ## How it works
 

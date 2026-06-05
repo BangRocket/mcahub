@@ -1,5 +1,7 @@
 bin/
 obj/
 data/
+cache/
+.env
 *.user
 .DS_Store
