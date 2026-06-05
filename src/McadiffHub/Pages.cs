@@ -502,7 +502,7 @@ public static class Pages
         {
             b.Append("<h2>Shared with you</h2><ul class=\"repos\">");
             foreach (Collab c in shared)
-                b.Append($"""<li><a href="/r/{E(c.Repo)}">{E(c.Repo)}</a> <span class="role role-{E(c.Role)}">{E(c.Role)}</span><span class="meta">owned by {E(db.GetUser(db.GetRepo(c.Repo)!.OwnerId)?.Login ?? "?")}</span></li>""");
+                b.Append($"""<li><a href="/r/{E(c.Repo)}">{E(c.Repo)}</a> <span class="role role-{E(c.Role)}">{E(c.Role)}</span><span class="meta">owned by {E(db.GetUser(db.GetRepo(c.Repo)?.OwnerId)?.Login ?? "?")}</span></li>""");
             b.Append("</ul>");
         }
         return Page(me.Login, b.ToString(), chip);
