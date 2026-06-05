@@ -28,12 +28,14 @@ public static class Auth
     public static Config Read(IConfiguration c)
     {
         string? V(string key, string env) => c[key] ?? Environment.GetEnvironmentVariable(env);
-        bool Flag(string env) => Environment.GetEnvironmentVariable(env) is "1" or "true" or "TRUE";
+        // config-first then env (matches V), so tests can drive the mode via IConfiguration
+        bool Flag(string key, string env) => V(key, env) is "1" or "true" or "TRUE";
 
         string? clientId = V("OAuthClientId", "MCAHUB_OAUTH_CLIENT_ID");
         string? clientSecret = V("OAuthClientSecret", "MCAHUB_OAUTH_CLIENT_SECRET");
         bool oauth = clientId is { Length: > 0 } && clientSecret is { Length: > 0 };
-        bool dev = Flag("MCAHUB_DEV_LOGIN");
+        bool dev = Flag("DevLogin", "MCAHUB_DEV_LOGIN");
+        string? master = V("PushToken", "MCAHUB_TOKEN");
         return new Config(
             Accounts: oauth || dev,
             Oauth: oauth,
@@ -45,7 +47,7 @@ public static class Auth
             TokenUrl: V("OAuthTokenUrl", "MCAHUB_OAUTH_TOKEN_URL") ?? "https://github.com/login/oauth/access_token",
             UserUrl: V("OAuthUserUrl", "MCAHUB_OAUTH_USER_URL") ?? "https://api.github.com/user",
             Scope: V("OAuthScope", "MCAHUB_OAUTH_SCOPE") ?? "read:user",
-            MasterToken: V("PushToken", "MCAHUB_TOKEN"));
+            MasterToken: master is { Length: > 0 } ? master : null);
     }
 
     // ---- service wiring ----

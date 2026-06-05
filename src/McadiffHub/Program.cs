@@ -36,7 +36,7 @@ WebApplication app = builder.Build();
 
 // Behind a TLS-terminating reverse proxy, trust X-Forwarded-Proto/Host so the OAuth redirect_uri the
 // handler builds matches the https callback registered with the provider. Must run before auth.
-if (Environment.GetEnvironmentVariable("MCAHUB_BEHIND_PROXY") is "1" or "true")
+if ((app.Configuration["BehindProxy"] ?? Environment.GetEnvironmentVariable("MCAHUB_BEHIND_PROXY")) is "1" or "true")
 {
     var fwd = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost };
     fwd.KnownIPNetworks.Clear();             // the hub is only reachable via the proxy, so trust its headers
@@ -76,3 +76,6 @@ static void LoadDotEnv(string path)
             Environment.SetEnvironmentVariable(key, val);
     }
 }
+
+// Exposed so WebApplicationFactory<Program> can boot the app in integration tests.
+public partial class Program;
