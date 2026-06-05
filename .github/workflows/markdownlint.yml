@@ -1,0 +1,38 @@
+name: markdownlint
+
+# Lints the project's human-facing markdown (README, SECURITY.md, CLAUDE.md). Scope lives in
+# .markdownlint-cli2.jsonc — no `globs:` input here, so the config file drives both glob
+# discovery and the .claude/** ignore. This check IS expected to stay green — make it a
+# required status check.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '.markdownlint-cli2.jsonc'
+      - '.github/workflows/markdownlint.yml'
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.markdownlint-cli2.jsonc'
+      - '.github/workflows/markdownlint.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: markdownlint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  markdownlint:
+    name: markdownlint-cli2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd # v23.2.0
