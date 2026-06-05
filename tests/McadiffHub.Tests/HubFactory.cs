@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Logging;
 
 namespace McadiffHub.Tests;
 
@@ -17,13 +18,15 @@ public sealed class HubFactory : WebApplicationFactory<Program>
     private readonly string _root = Path.Combine(Path.GetTempPath(), "mcahub-test-" + Guid.NewGuid().ToString("N")[..12]);
     private readonly HubMode _mode;
     private readonly IEnumerable<KeyValuePair<string, string>>? _settings;
+    private readonly List<string>? _logSink;
 
     public HubFactory(HubMode mode = HubMode.Open, string masterToken = "test-master-token",
-        IEnumerable<KeyValuePair<string, string>>? settings = null)
+        IEnumerable<KeyValuePair<string, string>>? settings = null, List<string>? logSink = null)
     {
         _mode = mode;
         MasterToken = masterToken;
         _settings = settings;
+        _logSink = logSink;
     }
 
     /// <summary>The master token configured in <see cref="HubMode.Token"/> mode.</summary>
@@ -52,6 +55,13 @@ public sealed class HubFactory : WebApplicationFactory<Program>
         if (_settings is not null)
             foreach (KeyValuePair<string, string> kv in _settings)
                 builder.UseSetting(kv.Key, kv.Value);
+
+        if (_logSink is not null)
+            builder.ConfigureLogging(lb =>
+            {
+                lb.SetMinimumLevel(LogLevel.Trace); // capture everything so a secret can't hide at Debug/Trace
+                lb.AddProvider(new ListLoggerProvider(_logSink));
+            });
     }
 
     protected override void Dispose(bool disposing)
@@ -59,5 +69,23 @@ public sealed class HubFactory : WebApplicationFactory<Program>
         base.Dispose(disposing);
         try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); }
         catch { /* best-effort temp cleanup */ }
+    }
+}
+
+/// <summary>Captures every formatted log message into a list, so a test can assert what is (not) logged.</summary>
+internal sealed class ListLoggerProvider(List<string> sink) : ILoggerProvider
+{
+    public ILogger CreateLogger(string categoryName) => new ListLogger(sink);
+    public void Dispose() { }
+
+    private sealed class ListLogger(List<string> sink) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            string line = formatter(state, exception) + (exception is null ? "" : " " + exception);
+            lock (sink) sink.Add(line);
+        }
     }
 }
