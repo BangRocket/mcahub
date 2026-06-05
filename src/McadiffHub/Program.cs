@@ -24,6 +24,7 @@ string sibling = Path.GetDirectoryName(Path.GetFullPath(dataDir))!;
 string cacheDir = builder.Configuration["CacheDir"] ?? Environment.GetEnvironmentVariable("MCAHUB_CACHE") ?? Path.Combine(sibling, "cache");
 string mapDir = builder.Configuration["MapDir"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAPS") ?? Path.Combine(sibling, "maps");
 string dbPath = builder.Configuration["DbPath"] ?? Environment.GetEnvironmentVariable("MCAHUB_DB") ?? Path.Combine(sibling, "hub.json");
+string auditPath = builder.Configuration["AuditPath"] ?? Environment.GetEnvironmentVariable("MCAHUB_AUDIT") ?? Path.Combine(sibling, "audit.jsonl");
 
 // Cap how much a single push may buffer. Kestrel's default is 30 MB; worlds can be larger, so we raise
 // it to 256 MiB (matching the mcadiff core's RepoServer) and enforce the same ceiling while streaming.
@@ -81,6 +82,7 @@ var store = new RepoStore(dataDir);
 var cache = new WorldCache(cacheDir, cacheLimits);
 var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks, cacheLimits);
 var db = new HubDb(dbPath);
+var audit = new AuditLog(auditPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
 
 // Fail closed (#9): never serve open mode (anonymous read+write+create) without an explicit override, or
@@ -140,8 +142,8 @@ if (auth.Accounts)
 
 Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback · /auth/logout · /auth/dev
 bool adoptUnowned = (app.Configuration["AdoptUnowned"] ?? Environment.GetEnvironmentVariable("MCAHUB_ADOPT_UNOWNED")) is "1" or "true"; // claim-on-first-push of pre-existing unowned repos (#6); default off
-Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned); // mcadiff clone/fetch/push under /r/{repo}/…
-Pages.MapPages(app, store, cache, maps, db, auth); // the web UI (browse + compare + world-state + map + account)
+Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit); // mcadiff clone/fetch/push under /r/{repo}/…
+Pages.MapPages(app, store, cache, maps, db, auth, audit); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
     : auth.MasterToken is null ? "open push" : "token-gated push";

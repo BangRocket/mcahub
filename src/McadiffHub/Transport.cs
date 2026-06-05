@@ -15,7 +15,7 @@ public static class Transport
 {
     private const string SystemOwner = "__system__"; // owner stamped on master-token pushes so they aren't orphan-claimable
 
-    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle, bool adoptUnowned)
+    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle, bool adoptUnowned, AuditLog audit)
     {
         // Advertise refs. A valid-but-not-yet-created name advertises an empty remote, so a first
         // `push` to it succeeds and auto-creates the world (hub convenience).
@@ -48,11 +48,11 @@ public static class Transport
 
         // Upload one object (single-object fallback).
         app.MapPost("/r/{repo}/objects/{hash}", async (string repo, string hash, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, async s => s.PutObject(hash, await Bytes(req, maxBody))));
+            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, async (s, _) => s.PutObject(hash, await Bytes(req, maxBody))));
 
         // Upload a whole pack (the common push path).
         app.MapPost("/r/{repo}/pack", async (string repo, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, async s =>
+            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, async (s, _) =>
             {
                 (byte[] pack, byte[] idx) = PackTransfer.UnframeBody(await Bytes(req, maxBody));
                 s.PutPack(pack, idx);
@@ -60,12 +60,16 @@ public static class Transport
 
         // Advance a branch (compare-and-swap, fast-forward guarded server-side).
         app.MapPost("/r/{repo}/refs/heads/{branch}", async (string repo, string branch, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, async s =>
+            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, async (s, actor) =>
             {
                 RefUpdate u = await req.ReadFromJsonAsync<RefUpdate>(HttpProtocol.Json) ?? new RefUpdate();
                 s.UpdateRef(branch, u.Old, u.New, u.Force);
+                audit.Append(actor, "ref.update", repo, $"{branch} {Sh(u.Old)}→{Sh(u.New)}", "cli", Ip(ctx));
             }));
     }
+
+    private static string Sh(string? hash) => hash is { Length: > 0 } ? hash[..Math.Min(10, hash.Length)] : "∅";
+    private static string? Ip(HttpContext ctx) => ctx.Connection.RemoteIpAddress?.ToString();
 
     private static RemoteService? Svc(RepoStore store, string repo, bool write) =>
         store.Exists(repo) ? new RemoteService(store.Open(repo), allowWrite: write) : null;
@@ -86,7 +90,7 @@ public static class Transport
     }
 
     private static async Task<IResult> Write(RepoStore store, HubDb db, Auth.Config cfg, string repo, HttpContext ctx,
-        AuthThrottle throttle, bool adoptUnowned, Func<RemoteService, Task> body)
+        AuthThrottle throttle, bool adoptUnowned, AuditLog audit, Func<RemoteService, string, Task> body)
     {
         if (!RepoStore.IsValidName(repo)) return Results.NotFound();
         (string? uid, bool admin) = Auth.Identify(ctx.Request, cfg, db, out bool badToken);
@@ -114,11 +118,14 @@ public static class Transport
         else if (cfg.MasterToken is not null && !admin)
             return Results.Text("invalid or missing push token", statusCode: 401);
 
-        if (!store.Exists(repo)) store.Create(repo);          // first push auto-creates the world
+        string actor = uid ?? (admin ? SystemOwner : "anon");
+        bool created = !store.Exists(repo);
+        if (created) store.Create(repo);                      // first push auto-creates the world
         if (cfg.Accounts && uid is not null) db.EnsureRepo(repo, uid, isPrivate: false);         // claim ownership on first push
         else if (cfg.Accounts && admin) db.EnsureRepo(repo, SystemOwner, isPrivate: false);      // master-token push: owned, never orphan-claimable (#6)
+        if (created && cfg.Accounts) audit.Append(actor, "ownership.claim", repo, "first push", "cli", Ip(ctx));
 
-        try { await body(new RemoteService(store.Open(repo), allowWrite: true)); return Results.Ok(); }
+        try { await body(new RemoteService(store.Open(repo), allowWrite: true), actor); return Results.Ok(); }
         catch (BadHttpRequestException e) { return Results.Text(e.Message, statusCode: e.StatusCode); } // body too large → 413
         catch (UnauthorizedAccessException) { return Results.NotFound(); }                              // e.g. path-confinement; no detail, no oracle
         catch (InvalidOperationException e) { return Results.Text(e.Message, statusCode: 400); }        // FF/stale-push etc. — safe operational text

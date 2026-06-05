@@ -50,6 +50,7 @@ Open <http://localhost:5080> to browse it.
 | Data dir | `MCAHUB_DATA` | `data/repos` | Where hosted `<name>.mcagit` repos live. |
 | World cache | `MCAHUB_CACHE` | sibling `cache/` | Materialized worlds for the explorer (one checkout per immutable backup). |
 | Account DB | `MCAHUB_DB` | sibling `hub.json` | Users, hashed tokens, repo ownership/visibility. |
+| Audit log | `MCAHUB_AUDIT` | sibling `audit.jsonl` | Append-only trail of role/visibility/ownership/ref/token changes; owners see a per-world history at `/r/<name>/audit`. |
 | Push token | `MCAHUB_TOKEN` | (none) | A shared/master token. In open mode it gates writes; in accounts mode it's an admin bypass. |
 | Bind URL | `ASPNETCORE_URLS` | `http://localhost:5080` | Put it behind a reverse proxy for TLS. |
 
