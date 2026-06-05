@@ -35,6 +35,7 @@ public sealed class HubFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(_root);
+        builder.UseSetting("urls", "http://localhost:5080"); // loopback so the #9 startup guard never trips under test
         builder.UseSetting("DataDir", Path.Combine(_root, "repos"));
         builder.UseSetting("CacheDir", Path.Combine(_root, "cache"));
         builder.UseSetting("MapDir", Path.Combine(_root, "maps"));
