@@ -136,7 +136,10 @@ regular user — an admin must adopt it, or you can open a supervised migration 
    `/account` for `mcadiff push`.
 
 Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback` URL and set
-`MCAHUB_BEHIND_PROXY=1` so the hub honors `X-Forwarded-Proto/Host` and builds an `https` redirect URI.
+`MCAHUB_BEHIND_PROXY=1` so the hub honors `X-Forwarded-Proto/Host/For` and builds an `https` redirect URI.
+Those headers are trusted **only from the proxy** — `MCAHUB_TRUSTED_PROXY` (IP or CIDR, default loopback);
+keep the app port itself unreachable from clients, or a spoofed `X-Forwarded-Host` could hijack the OAuth
+redirect / clone URLs.
 
 ## How it works
 
