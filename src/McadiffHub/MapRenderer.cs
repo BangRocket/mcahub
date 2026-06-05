@@ -101,9 +101,12 @@ public static class MapRenderer
         {
             if (tag is not NbtCompound sec) continue;
             if (sec.Get<NbtByte>("Y") is not { } yTag) continue;
+            sbyte secY = (sbyte)yTag.Value;
+            if (secY < -4 || secY > 19) continue; // (#15) ignore sections outside the 1.18+ range; a crafted
+                                                  // Y=-128 otherwise poisons height[] and corrupts shading
             if (sec.Get<NbtCompound>("block_states") is not { } bs) continue;
             if (BlockStateDecoder.Decode(bs, 4096, BlockStateDecoder.BlockMinBits) is { } cells)
-                decoded.Add(((sbyte)yTag.Value, cells));
+                decoded.Add((secY, cells));
         }
         if (decoded.Count == 0) return null;
         decoded.Sort((a, b) => b.Y.CompareTo(a.Y));
