@@ -1,3 +1,4 @@
+using System.Threading.RateLimiting;
 using McadiffHub;
 using Microsoft.AspNetCore.HttpOverrides;
 
@@ -36,6 +37,33 @@ int maxRenderChunks = (int)(ParsePositiveLong(builder.Configuration["MaxRenderCh
 TimeSpan renderTimeout = TimeSpan.FromSeconds(ParsePositiveLong(builder.Configuration["RenderTimeoutSeconds"] ?? Environment.GetEnvironmentVariable("MCAHUB_RENDER_TIMEOUT_SECONDS")) ?? 30);
 builder.Services.AddRequestTimeouts(o => o.AddPolicy(Pages.RenderTimeoutPolicy, renderTimeout));
 
+// Per-IP rate limits per surface (fixed 1-minute windows). Behind a proxy, RemoteIpAddress is accurate
+// only once forwarded-headers handling sets it (see the proxy issue) — the limiter picks it up then.
+int RateLimit(string key, string env, int def) => (int)(ParsePositiveLong(builder.Configuration[key] ?? Environment.GetEnvironmentVariable(env)) ?? def);
+int rlAuth = RateLimit("RateLimitAuth", "MCAHUB_RATELIMIT_AUTH", 20);
+int rlWrite = RateLimit("RateLimitWrite", "MCAHUB_RATELIMIT_WRITE", 60);
+int rlRender = RateLimit("RateLimitRender", "MCAHUB_RATELIMIT_RENDER", 30);
+int rlRead = RateLimit("RateLimitRead", "MCAHUB_RATELIMIT_READ", 300);
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.OnRejected = (ctx, _) => { ctx.HttpContext.Response.Headers.RetryAfter = "60"; return ValueTask.CompletedTask; };
+    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+    {
+        string ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        (string cat, int limit) = RateCategory(ctx.Request, rlAuth, rlWrite, rlRender, rlRead);
+        return RateLimitPartition.GetFixedWindowLimiter($"{cat}:{ip}", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = limit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0,
+        });
+    });
+});
+
+// Failure-specific bad-token lockout (brute-force defense), wired to the transport's badToken signal.
+var authThrottle = new AuthThrottle(
+    maxFailures: RateLimit("AuthMaxFailures", "MCAHUB_AUTH_MAX_FAILURES", 5),
+    baseCooldown: TimeSpan.FromSeconds(RateLimit("AuthLockoutSeconds", "MCAHUB_AUTH_LOCKOUT_SECONDS", 30)));
+
 // Bound the on-disk caches so a hostile or just-busy pusher can't fill the disk (which would also break
 // the account store's atomic write): a global byte ceiling + per-repo count cap for each, plus a cap on
 // how many filesystem entries one world manifest may materialize (inode-exhaustion guard).
@@ -70,11 +98,23 @@ if ((app.Configuration["BehindProxy"] ?? Environment.GetEnvironmentVariable("MCA
 
 app.UseStaticFiles();                         // wwwroot/style.css
 app.UseRequestTimeouts();                      // enforces the per-endpoint render deadline (Pages.RenderTimeoutPolicy)
+app.UseRateLimiter();                          // per-IP, per-surface rate limits (429 + Retry-After)
+app.Use(async (ctx, next) =>                   // bad-token lockout: refuse a locked-out IP's bearer requests early
+{
+    if (ctx.Request.Headers.ContainsKey("Authorization")
+        && authThrottle.IsLockedOut(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", out TimeSpan retry))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        ctx.Response.Headers.RetryAfter = ((int)Math.Ceiling(retry.TotalSeconds)).ToString();
+        return;
+    }
+    await next(ctx);
+});
 if (auth.Accounts)
     app.UseAuthentication();                  // populates ctx.User from the session cookie (access checks are our own)
 
 Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback · /auth/logout · /auth/dev
-Transport.MapTransport(app, store, db, auth, maxPushBytes); // mcadiff clone/fetch/push under /r/{repo}/…
+Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle); // mcadiff clone/fetch/push under /r/{repo}/…
 Pages.MapPages(app, store, cache, maps, db, auth); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
@@ -84,6 +124,23 @@ app.Run();
 
 // Parse a positive byte count from config/env; null (use the default) for missing or invalid input.
 static long? ParsePositiveLong(string? s) => long.TryParse(s, out long v) && v > 0 ? v : null;
+
+// Classify a request into a rate-limit surface (auth / write transport / cold render / read).
+static (string Category, int Limit) RateCategory(HttpRequest r, int auth, int write, int render, int read)
+{
+    string p = r.Path.Value ?? "";
+    if (p.StartsWith("/auth", StringComparison.Ordinal)
+        || (HttpMethods.IsPost(r.Method) && p.Equals("/account/tokens", StringComparison.Ordinal)))
+        return ("auth", auth);
+    if (HttpMethods.IsGet(r.Method) && p.StartsWith("/r/", StringComparison.Ordinal)
+        && p.Contains("/map/", StringComparison.Ordinal) && p.EndsWith(".png", StringComparison.Ordinal))
+        return ("render", render);
+    if (HttpMethods.IsPost(r.Method) && p.StartsWith("/r/", StringComparison.Ordinal)
+        && (p.EndsWith("/pack", StringComparison.Ordinal) || p.Contains("/objects/", StringComparison.Ordinal)
+            || p.Contains("/refs/heads/", StringComparison.Ordinal) || p.EndsWith("/have", StringComparison.Ordinal)))
+        return ("write", write);
+    return ("read", read);
+}
 
 // A minimal dotenv reader: KEY=VALUE lines, '#' comments, optional quotes. Never overrides a real
 // environment variable, so the shell still wins over the file.

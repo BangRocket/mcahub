@@ -69,9 +69,17 @@ generous for normal use; lower them on small/shared hosts.
 | `MCAHUB_MAX_RENDER_CONCURRENCY` | `3` | Max map renders running at once. |
 | `MCAHUB_MAX_RENDER_CHUNKS` | `10000` | Max chunks decoded per render; bigger worlds truncate. |
 | `MCAHUB_RENDER_TIMEOUT_SECONDS` | `30` | Hard server-side deadline for a single map render. |
+| `MCAHUB_RATELIMIT_AUTH` | `20` | Auth / token requests per IP per minute. |
+| `MCAHUB_RATELIMIT_WRITE` | `60` | Push (transport write) requests per IP per minute. |
+| `MCAHUB_RATELIMIT_RENDER` | `30` | Cold map renders per IP per minute. |
+| `MCAHUB_RATELIMIT_READ` | `300` | Read / page requests per IP per minute. |
+| `MCAHUB_AUTH_MAX_FAILURES` | `5` | Bad Bearer tokens from one IP before a temporary lockout. |
+| `MCAHUB_AUTH_LOCKOUT_SECONDS` | `30` | Base lockout after the failure threshold (doubles with continued failures). |
 
 A full cache evicts oldest-first and, if a single entry exceeds the ceiling, refuses it with a clear
-error rather than silently filling the disk.
+error rather than silently filling the disk. Rate limits are **per client IP** and return `429` with
+`Retry-After`; behind a reverse proxy, set `MCAHUB_BEHIND_PROXY=1` so the real client IP is used (else
+every client shares one bucket).
 
 ### Auth modes
 
