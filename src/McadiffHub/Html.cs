@@ -8,12 +8,13 @@ public static class Html
     /// <summary>HTML-escape untrusted text (repo names, commit messages, block ids).</summary>
     public static string E(string? s) => WebUtility.HtmlEncode(s ?? "");
 
-    public static IResult Page(string title, string body) => Results.Content(Layout(title, body), "text/html; charset=utf-8");
+    public static IResult Page(string title, string body, string headerRight = "") =>
+        Results.Content(Layout(title, body, headerRight), "text/html; charset=utf-8");
 
-    public static IResult NotFound(string what) =>
-        Results.Content(Layout("Not found", $"<p class=\"empty\">No such {E(what)}.</p>"), "text/html; charset=utf-8", statusCode: 404);
+    public static IResult NotFound(string what, string headerRight = "") =>
+        Results.Content(Layout("Not found", $"<p class=\"empty\">No such {E(what)}.</p>", headerRight), "text/html; charset=utf-8", statusCode: 404);
 
-    private static string Layout(string title, string body) => $$"""
+    private static string Layout(string title, string body, string headerRight) => $$"""
         <!doctype html>
         <html lang="en">
         <head>
@@ -23,7 +24,10 @@ public static class Html
           <link rel="stylesheet" href="/style.css">
         </head>
         <body>
-          <header><a class="brand" href="/">🟩 mcadiff-hub</a><span class="tag">worlds, version-controlled</span></header>
+          <header>
+            <a class="brand" href="/">🟩 mcadiff-hub</a><span class="tag">worlds, version-controlled</span>
+            <nav class="user">{{headerRight}}</nav>
+          </header>
           <main>
         {{body}}
           </main>

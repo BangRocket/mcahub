@@ -18,6 +18,9 @@ If mcadiff is git for worlds, this is the hub you push them to.
   sign).
 - **In-process** — references the mcadiff core directly, so it renders the real `WorldDiff` / `GriefReport`
   structures instead of scraping CLI text.
+- **Accounts (optional)** — OAuth sign-in (GitHub by default, any OAuth2 provider via config), per-user
+  **personal access tokens** for the CLI, and **public/private** worlds. Off by default; the hub stays a
+  zero-config local tool until you hand it an OAuth app.
 
 ## Run it
 
@@ -43,8 +46,32 @@ Open <http://localhost:5080> to browse it.
 | Setting | Env var | Default | Purpose |
 |---|---|---|---|
 | Data dir | `MCAHUB_DATA` | `data/repos` | Where hosted `<name>.mcagit` repos live. |
-| Push token | `MCAHUB_TOKEN` | (none) | If set, writes require `Authorization: Bearer <token>` (clients pass `--token`). Reads stay anonymous. |
+| World cache | `MCAHUB_CACHE` | sibling `cache/` | Materialized worlds for the explorer (one checkout per immutable backup). |
+| Account DB | `MCAHUB_DB` | sibling `hub.json` | Users, hashed tokens, repo ownership/visibility. |
+| Push token | `MCAHUB_TOKEN` | (none) | A shared/master token. In open mode it gates writes; in accounts mode it's an admin bypass. |
 | Bind URL | `ASPNETCORE_URLS` | `http://localhost:5080` | Put it behind a reverse proxy for TLS. |
+
+### Auth modes
+
+The hub runs in one of three modes, chosen by what you configure:
+
+- **Open** *(default — nothing set)*: anonymous, every world public, open push. Great for a trusted LAN.
+- **Token** *(`MCAHUB_TOKEN` set)*: reads anonymous, writes need `--token <that token>`.
+- **Accounts** *(OAuth configured)*: real users sign in via OAuth; each gets personal access tokens for the
+  CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcadiff push/clone` against a
+  private world uses a personal access token (mint one at `/account`) — exactly how GitHub handles `git push`.
+
+| Accounts env var | Default | Purpose |
+|---|---|---|
+| `MCAHUB_OAUTH_CLIENT_ID` / `MCAHUB_OAUTH_CLIENT_SECRET` | — | Your OAuth app credentials. Setting both turns accounts on. |
+| `MCAHUB_OAUTH_PROVIDER` | `github` | Label namespacing user ids (`github:1234`). |
+| `MCAHUB_OAUTH_AUTH_URL` / `_TOKEN_URL` / `_USER_URL` | GitHub's | Override to use GitLab, Gitea, or any OAuth2 provider. |
+| `MCAHUB_OAUTH_SCOPE` | `read:user` | Scopes requested at sign-in. |
+| `MCAHUB_DEV_LOGIN` | (off) | ⚠ Insecure local login at `/auth/dev` for evaluating accounts without an OAuth app. **Never on a public host.** |
+
+Register the OAuth app's callback as `http(s)://<your-host>/auth/callback`. When accounts are on, the first
+authenticated push to an unowned world claims ownership of it (this is how worlds pushed before you enabled
+accounts get adopted).
 
 ## How it works
 
@@ -59,14 +86,19 @@ Open <http://localhost:5080> to browse it.
   explorer (players + `WorldQuery` find).
 - `WorldCache` — materializes a backup to `cache/<repo>/<commit>` once (commits are immutable) so the
   dir-based `WorldQuery` reads a real world without re-checking-out on every page view.
+- `Auth` + `HubDb` — identity and the tiny JSON account store. `Auth` wires the framework's cookie + OAuth
+  handlers (no third-party package), splits web identity (cookie) from CLI identity (Bearer PAT), and holds
+  the shared `CanRead`/`CanWrite` rules used by both the web pages and the transport. `HubDb` keeps users,
+  **hashed** tokens (the plaintext is shown once and never stored), and per-repo owner/visibility.
 
 ## Status & roadmap
 
-Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, and a
+Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, a
 **world explorer** (players + find an entity / block entity / sign, backed by a materialize-once world
-cache). Natural next steps (some shared with the mcadiff GUI RFC):
+cache), and **accounts** (OAuth sign-in, per-user tokens, public/private worlds). Natural next steps
+(some shared with the mcadiff GUI RFC):
 
-- Accounts / per-repo access control (v1 is single shared push token).
+- Collaborators / teams (v1 access control is owner-only beyond public read) and antiforgery tokens.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
 - A rendered map thumbnail per backup and a time-machine scrubber.

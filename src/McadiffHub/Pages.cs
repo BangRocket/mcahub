@@ -6,23 +6,50 @@ using static McadiffHub.Html;
 
 namespace McadiffHub;
 
-/// <summary>Server-rendered pages: the repo list, a repo's backup timeline, and a backup's view —
-/// the semantic diff plus a "what happened here" grief summary (the bit a generic git host can't do).</summary>
+/// <summary>Server-rendered pages: the repo list, a repo's backup timeline, a backup's view (semantic
+/// diff + grief summary), compare-any-two-backups, a world explorer, and the account page (personal
+/// access tokens + per-repo visibility). Private worlds are hidden from anyone but their owner.</summary>
 public static class Pages
 {
-    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache)
+    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, HubDb db, Auth.Config cfg)
     {
-        app.MapGet("/", () => Home(store));
-        app.MapGet("/r/{repo}", (string repo) => Repo(store, repo));
-        app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash) => Commit(store, repo, hash));
-        app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b) => Compare(store, repo, a, b));
-        app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpRequest req) =>
-            World(store, cache, repo, reff, req.Query["find"], req.Query["q"]));
+        app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
+        app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo));
+        app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, repo, hash));
+        app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
+        app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
+            World(ctx, store, db, cfg, cache, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
+
+        if (!cfg.Accounts) return; // account + visibility surfaces only exist when accounts are enabled
+
+        app.MapGet("/account", (HttpContext ctx) => Account(ctx, store, db, cfg));
+        app.MapPost("/account/tokens", async (HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
+            string label = (await ctx.Request.ReadFormAsync())["label"].ToString();
+            string secret = db.CreateToken(me.Id, label);
+            return Account(ctx, store, db, cfg, fresh: secret);
+        });
+        app.MapPost("/account/tokens/revoke", async (HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me)
+                db.RevokeToken(me.Id, (await ctx.Request.ReadFormAsync())["prefix"].ToString());
+            return Results.Redirect("/account");
+        });
+        app.MapPost("/r/{repo}/settings", async (string repo, HttpContext ctx) =>
+        {
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+                db.SetPrivate(repo, (await ctx.Request.ReadFormAsync())["private"].ToString() is "on" or "true");
+            return Results.Redirect($"/r/{repo}");
+        });
     }
 
-    private static IResult Home(RepoStore store)
+    private static IResult Home(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg)
     {
-        var repos = store.List().ToList();
+        string chip = Auth.HeaderRight(ctx, cfg);
+        string? meId = Auth.Current(ctx)?.Id;
+        var repos = store.List().Where(r => Auth.CanRead(cfg, db, r.Name, meId, admin: false)).ToList();
+
         var b = new StringBuilder("<h1>Worlds</h1>");
         if (repos.Count == 0)
             b.Append("""<p class="empty">No worlds yet. Push one: <code>mcadiff push http://&lt;this-host&gt;/r/&lt;name&gt; main</code> (the hub auto-creates it).</p>""");
@@ -30,18 +57,40 @@ public static class Pages
         {
             b.Append("<ul class=\"repos\">");
             foreach (RepoSummary r in repos)
-                b.Append($"""<li><a href="/r/{E(r.Name)}">{E(r.Name)}</a><span class="meta">{r.Branches} branch(es){(r.LastWhen is null ? "" : $" · last backup {When(r.LastWhen)}")}</span>{(r.LastMessage is null ? "" : $"<span class=\"msg\">{E(Oneline(r.LastMessage))}</span>")}</li>""");
+            {
+                HubRepoMeta? m = db.GetRepo(r.Name);
+                string badges = (m?.Private == true ? """ <span class="vis vis-private">private</span>""" : "")
+                    + (m is not null ? $""" <span class="owner">{E(db.GetUser(m.OwnerId)?.Login ?? "?")}</span>""" : "");
+                b.Append($"""<li><a href="/r/{E(r.Name)}">{E(r.Name)}</a>{badges}<span class="meta">{r.Branches} branch(es){(r.LastWhen is null ? "" : $" · last backup {When(r.LastWhen)}")}</span>{(r.LastMessage is null ? "" : $"<span class=\"msg\">{E(Oneline(r.LastMessage))}</span>")}</li>""");
+            }
             b.Append("</ul>");
         }
-        return Page("Worlds", b.ToString());
+        return Page("Worlds", b.ToString(), chip);
     }
 
-    private static IResult Repo(RepoStore store, string name)
+    private static IResult Repo(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
     {
-        if (!store.Exists(name)) return NotFound("world");
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
         Repository repo = store.Open(name);
+        HubUser? me = Auth.Current(ctx);
+        HubRepoMeta? m = db.GetRepo(name);
+
         var b = new StringBuilder($"<h1>{E(name)}</h1>");
-        b.Append($"""<p class="clone">Clone: <code>mcadiff clone {E(BaseHint())}/r/{E(name)} {E(name)}.mcagit</code></p>""");
+        if (m is not null)
+        {
+            string vis = m.Private ? """<span class="vis vis-private">private</span>""" : """<span class="vis vis-public">public</span>""";
+            b.Append($"""<p class="meta">{vis} · owned by {E(db.GetUser(m.OwnerId)?.Login ?? "?")}</p>""");
+            if (me is not null && me.Id == m.OwnerId)
+                b.Append($"""
+                    <form class="settings" method="post" action="/r/{E(name)}/settings">
+                      <input type="hidden" name="private" value="{(m.Private ? "off" : "on")}">
+                      <button>Make {(m.Private ? "public" : "private")}</button>
+                    </form>
+                    """);
+        }
+        string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+        b.Append($"""<p class="clone">Clone: <code>mcadiff clone {E(baseUrl)}/r/{E(name)} {E(name)}.mcagit</code></p>""");
 
         b.Append("<h2>Branches</h2><ul class=\"branches\">");
         foreach (string br in repo.Branches())
@@ -64,15 +113,16 @@ public static class Pages
             b.Append("</ol>");
         }
         else b.Append("""<p class="empty">No backups yet.</p>""");
-        return Page(name, b.ToString());
+        return Page(name, b.ToString(), chip);
     }
 
-    private static IResult Commit(RepoStore store, string name, string hash)
+    private static IResult Commit(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string hash)
     {
-        if (!store.Exists(name)) return NotFound("world");
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
         Repository repo = store.Open(name);
         string commit;
-        try { commit = repo.ResolveRef(hash); } catch { return NotFound("backup"); }
+        try { commit = repo.ResolveRef(hash); } catch { return NotFound("backup", chip); }
         CommitObject c = repo.ReadCommit(commit);
 
         WorldDiff diff = CommitDiff(repo, commit, expand: true);
@@ -89,15 +139,16 @@ public static class Pages
         b.Append("<h2>Changes</h2>");
         if (!diff.HasDifferences) b.Append("""<p class="empty">No changes from the previous backup.</p>""");
         RenderDiff(b, diff);
-        return Page($"Backup {commit[..10]}", b.ToString());
+        return Page($"Backup {commit[..10]}", b.ToString(), chip);
     }
 
-    private static IResult Compare(RepoStore store, string name, string a, string bRef)
+    private static IResult Compare(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string a, string bRef)
     {
-        if (!store.Exists(name)) return NotFound("world");
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
         Repository repo = store.Open(name);
         string ca, cb;
-        try { ca = repo.ResolveRef(a); cb = repo.ResolveRef(bRef); } catch { return NotFound("backup"); }
+        try { ca = repo.ResolveRef(a); cb = repo.ResolveRef(bRef); } catch { return NotFound("backup", chip); }
 
         WorldDiff diff = RefDiff(repo, ca, cb, expand: true);
         var sb = new StringBuilder();
@@ -107,15 +158,17 @@ public static class Pages
         sb.Append("<h2>Changes</h2>");
         if (!diff.HasDifferences) sb.Append("""<p class="empty">No differences between these backups.</p>""");
         RenderDiff(sb, diff);
-        return Page($"Compare {ca[..10]}…{cb[..10]}", sb.ToString());
+        return Page($"Compare {ca[..10]}…{cb[..10]}", sb.ToString(), chip);
     }
 
-    private static IResult World(RepoStore store, WorldCache cache, string name, string refName, string? findKind, string? q)
+    private static IResult World(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, WorldCache cache,
+        string name, string refName, string? findKind, string? q)
     {
-        if (!store.Exists(name)) return NotFound("world");
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
         Repository repo = store.Open(name);
         string commit;
-        try { commit = repo.ResolveRef(refName); } catch { return NotFound("backup"); }
+        try { commit = repo.ResolveRef(refName); } catch { return NotFound("backup", chip); }
 
         string worldDir = cache.Materialize(name, repo, commit); // immutable cache; first view materializes
         var wq = new WorldQuery(worldDir);
@@ -153,8 +206,63 @@ public static class Pages
             if (n == 0) sb.Append("""<li class="empty">No matches.</li>""");
             sb.Append("</ul>");
         }
-        return Page($"World {commit[..10]}", sb.ToString());
+        return Page($"World {commit[..10]}", sb.ToString(), chip);
     }
+
+    // ---- account ----
+
+    private static IResult Account(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string? fresh = null)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
+
+        var b = new StringBuilder($"<h1>{E(me.Login)}</h1>");
+
+        if (fresh is not null)
+            b.Append($"""
+                <div class="flash">
+                  <strong>New token</strong> — copy it now, it won't be shown again:
+                  <div><code class="token">{E(fresh)}</code></div>
+                  <div class="g-where">Use it: <code>mcadiff push {E($"{ctx.Request.Scheme}://{ctx.Request.Host}")}/r/&lt;name&gt; main --token {E(fresh)}</code></div>
+                </div>
+                """);
+
+        b.Append("<h2>Personal access tokens</h2>");
+        b.Append("""<p class="meta">The CLI can't do a browser login, so <code>mcadiff push/clone</code> against private worlds (or any push in accounts mode) authenticates with one of these.</p>""");
+        var tokens = db.ListTokens(me.Id);
+        if (tokens.Count == 0) b.Append("""<p class="empty">No tokens yet.</p>""");
+        else
+        {
+            b.Append("<ul class=\"repos\">");
+            foreach (TokenInfo t in tokens)
+                b.Append($"""<li><code>{E(t.Prefix)}…</code> <span class="cmsg">{E(t.Label)}</span><span class="meta">created {When(t.CreatedAt)}{(t.LastUsedAt is null ? " · never used" : $" · last used {When(t.LastUsedAt)}")}</span><form class="revoke" method="post" action="/account/tokens/revoke"><input type="hidden" name="prefix" value="{E(t.Prefix)}"><button>revoke</button></form></li>""");
+            b.Append("</ul>");
+        }
+        b.Append("""
+            <form class="find" method="post" action="/account/tokens">
+              <input name="label" placeholder="label — laptop, backup-server…">
+              <button>Create token</button>
+            </form>
+            """);
+
+        var mine = store.List().Where(r => db.GetRepo(r.Name)?.OwnerId == me.Id).ToList();
+        b.Append("<h2>Your worlds</h2>");
+        if (mine.Count == 0) b.Append("""<p class="empty">None yet — push one and it's yours.</p>""");
+        else
+        {
+            b.Append("<ul class=\"repos\">");
+            foreach (RepoSummary r in mine)
+            {
+                bool priv = db.GetRepo(r.Name)?.Private == true;
+                b.Append($"""<li><a href="/r/{E(r.Name)}">{E(r.Name)}</a> <span class="vis vis-{(priv ? "private" : "public")}">{(priv ? "private" : "public")}</span><span class="meta">{r.Branches} branch(es)</span></li>""");
+            }
+            b.Append("</ul>");
+        }
+        return Page(me.Login, b.ToString(), chip);
+    }
+
+    private static bool CanSee(HttpContext ctx, HubDb db, Auth.Config cfg, string repo) =>
+        Auth.CanRead(cfg, db, repo, Auth.Current(ctx)?.Id, admin: false);
 
     private static string Opt(string v, string? sel) => $"""<option value="{v}"{(v == sel ? " selected" : "")}>{v}</option>""";
 
@@ -235,5 +343,4 @@ public static class Pages
     private static string Oneline(string msg) { int nl = msg.IndexOf('\n'); return nl < 0 ? msg : msg[..nl]; }
     private static string Short(string id) => id.StartsWith("minecraft:") ? id["minecraft:".Length..] : id;
     private static string When(string iso) => DateTimeOffset.TryParse(iso, out var d) ? d.ToString("yyyy-MM-dd HH:mm") : iso;
-    private static string BaseHint() => "http://localhost:5080";
 }

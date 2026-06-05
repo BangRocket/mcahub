@@ -12,11 +12,15 @@ a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 header {
-  display: flex; align-items: baseline; gap: 12px;
+  display: flex; align-items: center; gap: 12px;
   padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--panel);
 }
 header .brand { font-weight: 700; font-size: 18px; color: var(--fg); }
 header .tag { color: var(--muted); font-size: 13px; }
+header .user { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 14px; }
+header .user .me { color: var(--fg); display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+header .user .avatar { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
+header .user .navlink { color: var(--muted); }
 main { max-width: 960px; margin: 0 auto; padding: 24px; }
 footer { max-width: 960px; margin: 40px auto; padding: 0 24px; color: var(--muted); font-size: 13px; }
 
@@ -76,3 +80,27 @@ form.find select, form.find input, form.find button {
 form.find input { flex: 1; min-width: 200px; }
 form.find button { cursor: pointer; font-weight: 600; }
 form.find button:hover { border-color: var(--link); }
+
+/* visibility + ownership badges */
+.vis { font-size: 11px; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; font-weight: 700; }
+.vis-private { background: #2a1416; color: var(--red); }
+.vis-public { background: #11271b; color: var(--green); }
+.owner { color: var(--muted); font-size: 13px; }
+
+/* visibility toggle + token revoke — small inline forms */
+form.settings, form.revoke { display: inline; margin: 0 0 16px; }
+form.settings button, form.revoke button {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer;
+}
+form.revoke { margin: 0; }
+form.revoke button { padding: 2px 8px; font-size: 12px; color: var(--muted); }
+form.revoke button:hover, form.settings button:hover { border-color: var(--red); }
+
+/* freshly-minted token callout */
+.flash {
+  border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 8px;
+  padding: 12px 14px; margin: 16px 0; background: var(--panel);
+}
+.flash .token { color: var(--green); font-size: 14px; word-break: break-all; }
+.flash .g-where { color: var(--muted); font-size: 13px; margin-top: 6px; }
