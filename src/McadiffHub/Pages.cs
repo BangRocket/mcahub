@@ -15,7 +15,7 @@ public static class Pages
     /// <summary>Request-timeout policy name applied to the cold-render map endpoint (registered in Program).</summary>
     public const string RenderTimeoutPolicy = "render";
 
-    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg)
+    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg, AuditLog audit)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo));
@@ -34,21 +34,30 @@ public static class Pages
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
-            string secret = db.CreateToken(me.Id, (await ctx.Request.ReadFormAsync())["label"].ToString());
+            string label = (await ctx.Request.ReadFormAsync())["label"].ToString();
+            string secret = db.CreateToken(me.Id, label);
+            Log(ctx, audit, "token.create", null, string.IsNullOrWhiteSpace(label) ? "token" : label);
             return Account(ctx, store, db, cfg, fresh: secret);
         });
         app.MapPost("/account/tokens/revoke", async (HttpContext ctx) =>
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me)
-                db.RevokeToken(me.Id, (await ctx.Request.ReadFormAsync())["prefix"].ToString());
+            {
+                string prefix = (await ctx.Request.ReadFormAsync())["prefix"].ToString();
+                if (db.RevokeToken(me.Id, prefix)) Log(ctx, audit, "token.revoke", null, prefix);
+            }
             return Results.Redirect("/account");
         });
         app.MapPost("/r/{repo}/settings", async (string repo, HttpContext ctx) =>
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me && Auth.CanManageSettings(db, repo, me.Id))
-                db.SetPrivate(repo, (await ctx.Request.ReadFormAsync())["private"].ToString() is "on" or "true");
+            {
+                bool priv = (await ctx.Request.ReadFormAsync())["private"].ToString() is "on" or "true";
+                db.SetPrivate(repo, priv);
+                Log(ctx, audit, "visibility", repo, priv ? "→ private" : "→ public");
+            }
             return Results.Redirect($"/r/{repo}");
         });
         app.MapPost("/r/{repo}/collaborators", async (string repo, HttpContext ctx) =>
@@ -59,7 +68,12 @@ public static class Pages
                 IFormCollection form = await ctx.Request.ReadFormAsync();
                 HubUser? target = db.UserByLogin(form["login"].ToString().Trim());
                 if (target is null) return Results.Redirect($"/r/{repo}?err=nouser");
-                if (db.GetRepo(repo) is { } m && target.Id != m.OwnerId) db.SetCollab(repo, target.Id, Role(form["role"].ToString())); // owner outranks any grant
+                if (db.GetRepo(repo) is { } m && target.Id != m.OwnerId) // owner outranks any grant
+                {
+                    string role = Role(form["role"].ToString());
+                    db.SetCollab(repo, target.Id, role);
+                    Log(ctx, audit, "collaborator.add", repo, $"{target.Login}={role}");
+                }
             }
             return Results.Redirect($"/r/{repo}");
         });
@@ -67,7 +81,11 @@ public static class Pages
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
-                db.RemoveCollab(repo, (await ctx.Request.ReadFormAsync())["userId"].ToString());
+            {
+                string userId = (await ctx.Request.ReadFormAsync())["userId"].ToString();
+                db.RemoveCollab(repo, userId);
+                Log(ctx, audit, "collaborator.remove", repo, db.GetUser(userId)?.Login ?? userId);
+            }
             return Results.Redirect($"/r/{repo}");
         });
 
@@ -115,7 +133,9 @@ public static class Pages
                 IFormCollection form = await ctx.Request.ReadFormAsync();
                 string team = form["team"].ToString().Trim();
                 if (db.GetTeam(team) is null) return Results.Redirect($"/r/{repo}?err=noteam");
-                db.SetTeamGrant(repo, team, Role(form["role"].ToString()));
+                string role = Role(form["role"].ToString());
+                db.SetTeamGrant(repo, team, role);
+                Log(ctx, audit, "team-grant.add", repo, $"{team}={role}");
             }
             return Results.Redirect($"/r/{repo}");
         });
@@ -123,13 +143,24 @@ public static class Pages
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
-                db.RemoveTeamGrant(repo, (await ctx.Request.ReadFormAsync())["team"].ToString());
+            {
+                string team = (await ctx.Request.ReadFormAsync())["team"].ToString();
+                db.RemoveTeamGrant(repo, team);
+                Log(ctx, audit, "team-grant.remove", repo, team);
+            }
             return Results.Redirect($"/r/{repo}");
         });
+
+        // Per-repo audit history, owners/admins only (#16).
+        app.MapGet("/r/{repo}/audit", (string repo, HttpContext ctx) => AuditView(ctx, store, db, cfg, audit, repo));
     }
 
     private static IResult BadCsrf() => Results.Text("Invalid or expired form token — go back, reload the page, and retry.", statusCode: 400);
     private static string Role(string s) => HubDb.IsRole(s) ? s : "read";
+
+    /// <summary>Record a web mutation in the audit trail (#16): actor login, action, repo, detail, IP.</summary>
+    private static void Log(HttpContext ctx, AuditLog audit, string action, string? repo, string detail) =>
+        audit.Append(Auth.Current(ctx)?.Login ?? "?", action, repo, detail, "web", ctx.Connection.RemoteIpAddress?.ToString());
 
     private static IResult Teams(HttpContext ctx, HubDb db, Auth.Config cfg)
     {
@@ -252,6 +283,8 @@ public static class Pages
         RenderCollaborators(b, ctx, db, name, m, me);
         string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
         b.Append($"""<p class="clone">Clone: <code>mcadiff clone {E(baseUrl)}/r/{E(name)} {E(name)}.mcagit</code></p>""");
+        if (me is not null && Auth.CanManagePeople(db, name, me.Id))
+            b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
 
         b.Append("<h2>Branches</h2><ul class=\"branches\">");
         foreach (string br in repo.Branches())
@@ -445,6 +478,26 @@ public static class Pages
         <p class="cmeta" id="tm-cap"></p>
         <script type="application/json" id="tm-data" data-repo="%%NAME%%">%%DATA%%</script>
         """;
+
+    private static IResult AuditView(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, AuditLog audit, string name)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
+        if (Auth.Current(ctx) is not { } me || !Auth.CanManagePeople(db, name, me.Id)) return NotFound("world", chip); // owners/admins only
+
+        var b = new StringBuilder($"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p><h1>Audit · {E(name)}</h1>""");
+        b.Append("""<p class="meta">Role, visibility, ownership, ref, and team-grant changes for this world.</p>""");
+        IReadOnlyList<AuditEntry> entries = audit.Recent(name, 200);
+        if (entries.Count == 0) b.Append("""<p class="empty">No audit entries yet.</p>""");
+        else
+        {
+            b.Append("<ul class=\"changes\">");
+            foreach (AuditEntry e in entries)
+                b.Append($"""<li><span class="meta">{E(When(e.At))}</span> <code>{E(e.Action)}</code> by {E(e.Actor)}{(e.Detail is null ? "" : $" — {E(e.Detail)}")} <span class="meta">{E(e.Source)}{(e.Ip is null ? "" : " · " + E(e.Ip))}</span></li>""");
+            b.Append("</ul>");
+        }
+        return Page($"Audit · {name}", b.ToString(), chip);
+    }
 
     // ---- account ----
 
