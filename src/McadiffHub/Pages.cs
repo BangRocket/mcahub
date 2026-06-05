@@ -194,7 +194,7 @@ public static class Pages
                   <input name="login" placeholder="username — they must have signed in once">
                   <button>Add member</button>
                 </form>
-                <form class="settings" method="post" action="/teams/{E(name)}/delete" onsubmit="return confirm('Delete team {E(name)}? Its grants are removed.')">
+                <form class="settings" method="post" action="/teams/{E(name)}/delete" data-confirm="Delete team {E(name)}? Its grants are removed.">
                   {Auth.CsrfField(ctx)}
                   <button>Delete team</button>
                 </form>
@@ -426,14 +426,13 @@ public static class Pages
             .Replace("%%NAME%%", E(name))
             .Replace("%%MAX%%", max.ToString())
             .Replace("%%DIS%%", pts.Count < 2 ? "disabled" : "")
-            .Replace("%%DATA%%", JsonSerializer.Serialize(pts))
-            .Replace("%%REPOJSON%%", JsonSerializer.Serialize(name));
+            .Replace("%%DATA%%", JsonSerializer.Serialize(pts));
         return Page($"Time machine · {name}", body, chip);
     }
 
-    // Placeholders (not C# interpolation) so the JS braces stay literal. %%NAME%% is pre-HTML-escaped;
-    // %%DATA%%/%%REPOJSON%% are System.Text.Json output (escapes <,>,& — safe to inline in <script>);
-    // captions are written via textContent, never innerHTML.
+    // Placeholders (not C# interpolation) so the markup stays literal. %%NAME%% is pre-HTML-escaped;
+    // %%DATA%% is System.Text.Json output (escapes <,>,& — safe inside the JSON data-island that the
+    // static /app.js reads). No inline executable script, so the CSP can stay strict.
     private const string TimeMachineTemplate = """
         <p class="back"><a href="/r/%%NAME%%">← %%NAME%%</a></p>
         <h1>Time machine · %%NAME%%</h1>
@@ -444,31 +443,7 @@ public static class Pages
           <span class="meta" id="tm-when"></span>
         </div>
         <p class="cmeta" id="tm-cap"></p>
-        <script>
-        const B = %%DATA%%, repo = %%REPOJSON%%;
-        const img = document.getElementById('tm-map'), box = img.closest('.map-box'),
-              cap = document.getElementById('tm-cap'), when = document.getElementById('tm-when'),
-              slider = document.getElementById('tm-scrub'), playBtn = document.getElementById('tm-play');
-        img.addEventListener('load', function(){ box.classList.remove('loading','error'); });
-        img.addEventListener('error', function(){ box.classList.remove('loading'); box.classList.add('error'); box.querySelector('.map-status').textContent = 'Map unavailable'; });
-        function show(i){
-          const b = B[i]; if(!b) return;
-          box.classList.remove('error'); box.classList.add('loading');
-          box.querySelector('.map-status').textContent = 'Generating map…';
-          img.src = '/r/'+repo+'/map/'+b.Hash+'.png';
-          cap.textContent = b.Short + ' · ' + b.Msg;
-          when.textContent = '#'+(i+1)+'/'+B.length+' · '+b.Author+' · '+b.When;
-          [i-1,i+1].forEach(function(j){ if(B[j]){ const p=new Image(); p.src='/r/'+repo+'/map/'+B[j].Hash+'.png'; } });
-        }
-        slider.addEventListener('input', function(e){ show(+e.target.value); });
-        let timer=null;
-        playBtn.addEventListener('click', function(){
-          if(timer){ clearInterval(timer); timer=null; playBtn.textContent='▶ play'; return; }
-          playBtn.textContent='⏸ pause';
-          timer=setInterval(function(){ let v=+slider.value+1; if(v>B.length-1) v=0; slider.value=v; show(v); }, 1200);
-        });
-        show(+slider.value);
-        </script>
+        <script type="application/json" id="tm-data" data-repo="%%NAME%%">%%DATA%%</script>
         """;
 
     // ---- account ----

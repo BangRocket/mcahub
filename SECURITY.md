@@ -62,6 +62,10 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
   transport POSTs are intentionally *not* in that path, so the CLI still works.
 - **OAuth** uses the framework's handlers with PKCE + state; identities are namespaced by provider so two
   providers can't collide. `returnUrl` is restricted to local paths.
+- **Response headers + cookies:** every response carries a strict CSP (`script-src 'self'` — all client JS
+  is the static `/app.js`, with per-request scrubber data in a JSON data-island), `X-Frame-Options`,
+  `X-Content-Type-Options`, `Referrer-Policy`, and HSTS over HTTPS; session + antiforgery cookies are
+  `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 
 ## Where I'd look
 
