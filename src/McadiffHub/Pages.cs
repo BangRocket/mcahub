@@ -407,6 +407,10 @@ public static class Pages
         sb.Append($"<h1>World at {commit[..10]}</h1>");
         sb.Append($"""<div class="map">{MapBox($"/r/{E(name)}/map/{commit}.png", "top-down map of this backup")}</div>""");
 
+        // Player coordinates, inventory, and sign text are a doxxing/griefing surface on a public world,
+        // so in accounts mode they're shown only to collaborators (#34). Open/LAN mode shows everything.
+        bool canSeeData = Auth.CanSeePlayerData(cfg, db, name, Auth.Current(ctx)?.Id, admin: false);
+
         var players = wq.Players().ToList();
         sb.Append("<h2>Players</h2>");
         if (players.Count == 0) sb.Append("""<p class="empty">No player data.</p>""");
@@ -414,27 +418,35 @@ public static class Pages
         {
             sb.Append("<ul class=\"branches\">");
             foreach (PlayerHit p in players)
-                sb.Append($"""<li>{E(p.Source)} <span class="meta">({p.X:0.#},{p.Y:0.#},{p.Z:0.#}) [{E(p.Dimension)}]{(p.Health >= 0 ? $" · {p.Health:0.#} hp" : "")}</span></li>""");
+                sb.Append(canSeeData
+                    ? $"""<li>{E(p.Source)} <span class="meta">({p.X:0.#},{p.Y:0.#},{p.Z:0.#}) [{E(p.Dimension)}]{(p.Health >= 0 ? $" · {p.Health:0.#} hp" : "")}</span></li>"""
+                    : $"""<li>{E(p.Source)} <span class="meta">(location hidden)</span></li>""");
             sb.Append("</ul>");
         }
 
-        sb.Append($"""
-            <h2>Find</h2>
-            <form class="find" method="get" action="/r/{E(name)}/world/{E(refName)}">
-              <select name="find">{Opt("entity", findKind)}{Opt("block-entity", findKind)}{Opt("sign", findKind)}</select>
-              <input name="q" placeholder="id or text — chest, zombie, spawn…" value="{E(q)}">
-              <button>Search</button>
-            </form>
-            """);
-        if (findKind is { Length: > 0 } && q is { Length: > 0 })
+        if (!canSeeData)
+            sb.Append("""<p class="empty">Player locations, inventory, and sign text are visible only to this world's collaborators.</p>""");
+        else
         {
-            sb.Append("<ul class=\"changes\">");
-            int n = 0;
-            if (findKind == "entity") foreach (EntityHit h in wq.Entities(q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X:0.#},{h.Y:0.#},{h.Z:0.#}){(h.CustomName is null ? "" : $" \"{E(h.CustomName)}\"")}</li>"""); n++; }
-            else if (findKind == "block-entity") foreach (BlockEntityHit h in wq.BlockEntities(q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X},{h.Y},{h.Z}){(h.ItemCount > 0 ? $" · {h.ItemCount} items" : "")}</li>"""); n++; }
-            else if (findKind == "sign") foreach (SignHit h in wq.Signs(q).Take(300)) { sb.Append($"""<li>({h.X},{h.Y},{h.Z}) "{E(string.Join(" / ", h.Lines))}"</li>"""); n++; }
-            if (n == 0) sb.Append("""<li class="empty">No matches.</li>""");
-            sb.Append("</ul>");
+            sb.Append("""<p class="meta">⚠ This page reveals player locations, inventory counts, and sign text. Only this world's collaborators see them — to anyone else (if it's public) they show as “location hidden”.</p>""");
+            sb.Append($"""
+                <h2>Find</h2>
+                <form class="find" method="get" action="/r/{E(name)}/world/{E(refName)}">
+                  <select name="find">{Opt("entity", findKind)}{Opt("block-entity", findKind)}{Opt("sign", findKind)}</select>
+                  <input name="q" placeholder="id or text — chest, zombie, spawn…" value="{E(q)}">
+                  <button>Search</button>
+                </form>
+                """);
+            if (findKind is { Length: > 0 } && q is { Length: > 0 })
+            {
+                sb.Append("<ul class=\"changes\">");
+                int n = 0;
+                if (findKind == "entity") foreach (EntityHit h in wq.Entities(q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X:0.#},{h.Y:0.#},{h.Z:0.#}){(h.CustomName is null ? "" : $" \"{E(h.CustomName)}\"")}</li>"""); n++; }
+                else if (findKind == "block-entity") foreach (BlockEntityHit h in wq.BlockEntities(q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X},{h.Y},{h.Z}){(h.ItemCount > 0 ? $" · {h.ItemCount} items" : "")}</li>"""); n++; }
+                else if (findKind == "sign") foreach (SignHit h in wq.Signs(q).Take(300)) { sb.Append($"""<li>({h.X},{h.Y},{h.Z}) "{E(string.Join(" / ", h.Lines))}"</li>"""); n++; }
+                if (n == 0) sb.Append("""<li class="empty">No matches.</li>""");
+                sb.Append("</ul>");
+            }
         }
         return Page($"World {commit[..10]}", sb.ToString(), chip);
     }

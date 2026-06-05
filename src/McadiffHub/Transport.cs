@@ -15,7 +15,7 @@ public static class Transport
 {
     private const string SystemOwner = "__system__"; // owner stamped on master-token pushes so they aren't orphan-claimable
 
-    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle, bool adoptUnowned, AuditLog audit)
+    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle, bool adoptUnowned, AuditLog audit, bool defaultPrivate)
     {
         // Advertise refs. A valid-but-not-yet-created name advertises an empty remote, so a first
         // `push` to it succeeds and auto-creates the world (hub convenience).
@@ -48,11 +48,11 @@ public static class Transport
 
         // Upload one object (single-object fallback).
         app.MapPost("/r/{repo}/objects/{hash}", async (string repo, string hash, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, async (s, _) => s.PutObject(hash, await Bytes(req, maxBody))));
+            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, defaultPrivate, async (s, _) => s.PutObject(hash, await Bytes(req, maxBody))));
 
         // Upload a whole pack (the common push path).
         app.MapPost("/r/{repo}/pack", async (string repo, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, async (s, _) =>
+            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, defaultPrivate, async (s, _) =>
             {
                 (byte[] pack, byte[] idx) = PackTransfer.UnframeBody(await Bytes(req, maxBody));
                 s.PutPack(pack, idx);
@@ -60,7 +60,7 @@ public static class Transport
 
         // Advance a branch (compare-and-swap, fast-forward guarded server-side).
         app.MapPost("/r/{repo}/refs/heads/{branch}", async (string repo, string branch, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, async (s, actor) =>
+            await Write(store, db, cfg, repo, ctx, throttle, adoptUnowned, audit, defaultPrivate, async (s, actor) =>
             {
                 RefUpdate u = await req.ReadFromJsonAsync<RefUpdate>(HttpProtocol.Json) ?? new RefUpdate();
                 s.UpdateRef(branch, u.Old, u.New, u.Force);
@@ -90,7 +90,7 @@ public static class Transport
     }
 
     private static async Task<IResult> Write(RepoStore store, HubDb db, Auth.Config cfg, string repo, HttpContext ctx,
-        AuthThrottle throttle, bool adoptUnowned, AuditLog audit, Func<RemoteService, string, Task> body)
+        AuthThrottle throttle, bool adoptUnowned, AuditLog audit, bool defaultPrivate, Func<RemoteService, string, Task> body)
     {
         if (!RepoStore.IsValidName(repo)) return Results.NotFound();
         (string? uid, bool admin, string? scope) = Auth.Identify(ctx.Request, cfg, db, out bool badToken);
@@ -123,8 +123,8 @@ public static class Transport
         string actor = uid ?? (admin ? SystemOwner : "anon");
         bool created = !store.Exists(repo);
         if (created) store.Create(repo);                      // first push auto-creates the world
-        if (cfg.Accounts && uid is not null) db.EnsureRepo(repo, uid, isPrivate: false);         // claim ownership on first push
-        else if (cfg.Accounts && admin) db.EnsureRepo(repo, SystemOwner, isPrivate: false);      // master-token push: owned, never orphan-claimable (#6)
+        if (cfg.Accounts && uid is not null) db.EnsureRepo(repo, uid, isPrivate: defaultPrivate); // claim on first push; new worlds default private (#34)
+        else if (cfg.Accounts && admin) db.EnsureRepo(repo, SystemOwner, isPrivate: false);       // master-token push: owned, never orphan-claimable (#6); ops, stays public
         if (created && cfg.Accounts) audit.Append(actor, "ownership.claim", repo, "first push", "cli", Ip(ctx));
 
         try { await body(new RemoteService(store.Open(repo), allowWrite: true), actor); return Results.Ok(); }

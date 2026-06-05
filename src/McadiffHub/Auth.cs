@@ -284,6 +284,12 @@ public static class Auth
         return Rank(db.RoleOf(repo, writerId)) >= 2;       // write, maintain, admin, owner can push
     }
 
+    /// <summary>Whether the viewer may see sensitive explorer data (player coords/health, sign text,
+    /// inventory). Open/token mode is a trusted LAN, so everyone may; in accounts mode only the owner +
+    /// collaborators may, so a public world doesn't doxx its players' locations to strangers. (#34)</summary>
+    public static bool CanSeePlayerData(Config cfg, HubDb db, string repo, string? viewerId, bool admin) =>
+        !cfg.Accounts || admin || db.RoleOf(repo, viewerId) is not null;
+
     /// <summary>Change repo settings (visibility): maintain and up.</summary>
     public static bool CanManageSettings(HubDb db, string repo, string? userId) => Rank(db.RoleOf(repo, userId)) >= 3;
 
