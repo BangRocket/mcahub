@@ -158,11 +158,12 @@ public sealed class HubDb
                 if (_db.Teams.FirstOrDefault(t => t.Name == g.TeamName) is { } t && t.Members.Contains(userId))
                     best = Math.Max(best, Rank(g.Role));
 
-            return best switch { 2 => "write", 1 => "read", _ => null };
+            return best switch { 4 => "admin", 3 => "maintain", 2 => "write", 1 => "read", _ => null };
         }
     }
 
-    private static int Rank(string? role) => role switch { "write" => 2, "read" => 1, _ => 0 };
+    public static bool IsRole(string role) => role is "read" or "write" or "maintain" or "admin";
+    private static int Rank(string? role) => role switch { "admin" => 4, "maintain" => 3, "write" => 2, "read" => 1, _ => 0 };
 
     public IReadOnlyList<Collab> CollabsOf(string repo)
     {
@@ -177,7 +178,7 @@ public sealed class HubDb
 
     public void SetCollab(string repo, string userId, string role)
     {
-        if (role is not ("read" or "write")) return;
+        if (!IsRole(role)) return;
         lock (_lock)
         {
             int i = _db.Collabs.FindIndex(c => c.Repo == repo && c.UserId == userId);
@@ -263,7 +264,7 @@ public sealed class HubDb
 
     public void SetTeamGrant(string repo, string team, string role)
     {
-        if (role is not ("read" or "write")) return;
+        if (!IsRole(role)) return;
         lock (_lock)
         {
             int i = _db.TeamGrants.FindIndex(g => g.Repo == repo && g.TeamName == team);

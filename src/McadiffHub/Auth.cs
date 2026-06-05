@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth;
@@ -52,6 +53,12 @@ public static class Auth
     public static void AddAuth(WebApplicationBuilder builder, Config cfg, HubDb db)
     {
         if (!cfg.Accounts) return;
+        builder.Services.AddAntiforgery(o =>
+        {
+            o.Cookie.Name = "mcahub_csrf";
+            o.Cookie.HttpOnly = true;
+            o.Cookie.SameSite = SameSiteMode.Lax;
+        });
         AuthenticationBuilder ab = builder.Services
             .AddAuthentication(o => o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(o =>
@@ -122,11 +129,12 @@ public static class Auth
 
         if (cfg.DevLogin)
         {
-            app.MapGet("/auth/dev", () => Html.Page("Dev sign-in", """
+            app.MapGet("/auth/dev", (HttpContext ctx) => Html.Page("Dev sign-in", $"""
                 <h1>Dev sign-in</h1>
                 <p class="empty">⚠ Insecure local login (<code>MCAHUB_DEV_LOGIN</code>) — for evaluating accounts without
                 an OAuth app. Never enable this on a public host.</p>
                 <form class="find" method="post" action="/auth/dev">
+                  {CsrfField(ctx)}
                   <input name="user" placeholder="username" autofocus>
                   <button>Sign in</button>
                 </form>
@@ -134,6 +142,7 @@ public static class Auth
 
             app.MapPost("/auth/dev", async (HttpContext ctx) =>
             {
+                if (!await CsrfOk(ctx)) return Results.Text("Invalid or expired form token — reload and retry.", statusCode: 400);
                 IFormCollection form = await ctx.Request.ReadFormAsync();
                 string name = (form["user"].ToString() ?? "").Trim();
                 if (name.Length is 0 or > 40) return Results.Redirect("/auth/dev");
@@ -182,14 +191,39 @@ public static class Auth
         return (uid, false);
     }
 
+    // ---- CSRF (antiforgery) for the cookie-authenticated web forms ----
+
+    /// <summary>A hidden antiforgery field to embed in a state-changing form. Issuing it also sets the
+    /// antiforgery cookie on the response, so it must be called while rendering (before the body flushes).</summary>
+    public static string CsrfField(HttpContext ctx)
+    {
+        AntiforgeryTokenSet t = ctx.RequestServices.GetRequiredService<IAntiforgery>().GetAndStoreTokens(ctx);
+        return $"""<input type="hidden" name="{t.FormFieldName}" value="{Html.E(t.RequestToken)}">""";
+    }
+
+    /// <summary>Validate the antiforgery token on a POST. We validate manually (rather than the middleware)
+    /// because the handlers read the form via HttpContext, and so the transport POSTs — which carry no
+    /// token — are never touched.</summary>
+    public static async Task<bool> CsrfOk(HttpContext ctx)
+    {
+        try { await ctx.RequestServices.GetRequiredService<IAntiforgery>().ValidateRequestAsync(ctx); return true; }
+        catch (AntiforgeryValidationException) { return false; }
+    }
+
     // ---- access control (shared by web + transport) ----
+
+    /// <summary>Role ladder: owner &gt; admin &gt; maintain &gt; write &gt; read. Capabilities compare rank.</summary>
+    private static int Rank(string? role) => role switch
+    {
+        "owner" => 5, "admin" => 4, "maintain" => 3, "write" => 2, "read" => 1, _ => 0,
+    };
 
     public static bool CanRead(Config cfg, HubDb db, string repo, string? viewerId, bool admin)
     {
         if (!cfg.Accounts) return true;                    // open / shared-token modes: everything public
         HubRepoMeta? m = db.GetRepo(repo);
         if (m is null || !m.Private) return true;          // public, or legacy/unowned
-        return admin || db.RoleOf(repo, viewerId) is not null; // owner, or read/write collaborator
+        return admin || db.RoleOf(repo, viewerId) is not null; // owner, or any collaborator
     }
 
     public static bool CanWrite(Config cfg, HubDb db, string repo, string? writerId, bool admin)
@@ -199,8 +233,14 @@ public static class Auth
         if (writerId is null) return false;                // accounts mode requires an authenticated PAT
         HubRepoMeta? m = db.GetRepo(repo);
         if (m is null) return true;                        // unowned → claimable on push
-        return db.RoleOf(repo, writerId) is "owner" or "write"; // owner or write collaborator
+        return Rank(db.RoleOf(repo, writerId)) >= 2;       // write, maintain, admin, owner can push
     }
+
+    /// <summary>Change repo settings (visibility): maintain and up.</summary>
+    public static bool CanManageSettings(HubDb db, string repo, string? userId) => Rank(db.RoleOf(repo, userId)) >= 3;
+
+    /// <summary>Manage collaborators and team grants: admin and up (the owner is admin's superior).</summary>
+    public static bool CanManagePeople(HubDb db, string repo, string? userId) => Rank(db.RoleOf(repo, userId)) >= 4;
 
     // ---- helpers ----
 

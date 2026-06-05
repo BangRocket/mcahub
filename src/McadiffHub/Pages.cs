@@ -28,38 +28,41 @@ public static class Pages
         app.MapGet("/account", (HttpContext ctx) => Account(ctx, store, db, cfg));
         app.MapPost("/account/tokens", async (HttpContext ctx) =>
         {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
-            string label = (await ctx.Request.ReadFormAsync())["label"].ToString();
-            string secret = db.CreateToken(me.Id, label);
+            string secret = db.CreateToken(me.Id, (await ctx.Request.ReadFormAsync())["label"].ToString());
             return Account(ctx, store, db, cfg, fresh: secret);
         });
         app.MapPost("/account/tokens/revoke", async (HttpContext ctx) =>
         {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me)
                 db.RevokeToken(me.Id, (await ctx.Request.ReadFormAsync())["prefix"].ToString());
             return Results.Redirect("/account");
         });
         app.MapPost("/r/{repo}/settings", async (string repo, HttpContext ctx) =>
         {
-            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManageSettings(db, repo, me.Id))
                 db.SetPrivate(repo, (await ctx.Request.ReadFormAsync())["private"].ToString() is "on" or "true");
             return Results.Redirect($"/r/{repo}");
         });
         app.MapPost("/r/{repo}/collaborators", async (string repo, HttpContext ctx) =>
         {
-            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
             {
                 IFormCollection form = await ctx.Request.ReadFormAsync();
-                string role = form["role"].ToString() is "write" ? "write" : "read";
                 HubUser? target = db.UserByLogin(form["login"].ToString().Trim());
                 if (target is null) return Results.Redirect($"/r/{repo}?err=nouser");
-                if (target.Id != m.OwnerId) db.SetCollab(repo, target.Id, role); // owner is already above any grant
+                if (db.GetRepo(repo) is { } m && target.Id != m.OwnerId) db.SetCollab(repo, target.Id, Role(form["role"].ToString())); // owner outranks any grant
             }
             return Results.Redirect($"/r/{repo}");
         });
         app.MapPost("/r/{repo}/collaborators/remove", async (string repo, HttpContext ctx) =>
         {
-            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
                 db.RemoveCollab(repo, (await ctx.Request.ReadFormAsync())["userId"].ToString());
             return Results.Redirect($"/r/{repo}");
         });
@@ -68,18 +71,17 @@ public static class Pages
         app.MapGet("/teams", (HttpContext ctx) => Teams(ctx, db, cfg));
         app.MapPost("/teams", async (HttpContext ctx) =>
         {
-            if (Auth.Current(ctx) is { } me)
-            {
-                string name = (await ctx.Request.ReadFormAsync())["name"].ToString().Trim();
-                if (!RepoStore.IsValidName(name)) return Results.Redirect("/teams?err=name");
-                if (db.CreateTeam(name, me.Id) is null) return Results.Redirect("/teams?err=taken");
-                return Results.Redirect($"/teams/{name}");
-            }
-            return Results.Redirect("/auth/login");
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is not { } me) return Results.Redirect("/auth/login");
+            string name = (await ctx.Request.ReadFormAsync())["name"].ToString().Trim();
+            if (!RepoStore.IsValidName(name)) return Results.Redirect("/teams?err=name");
+            if (db.CreateTeam(name, me.Id) is null) return Results.Redirect("/teams?err=taken");
+            return Results.Redirect($"/teams/{name}");
         });
         app.MapGet("/teams/{name}", (string name, HttpContext ctx) => TeamPage(ctx, db, cfg, name));
         app.MapPost("/teams/{name}/members", async (string name, HttpContext ctx) =>
         {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me && db.GetTeam(name) is { } t && t.OwnerId == me.Id)
             {
                 HubUser? target = db.UserByLogin((await ctx.Request.ReadFormAsync())["login"].ToString().Trim());
@@ -90,34 +92,40 @@ public static class Pages
         });
         app.MapPost("/teams/{name}/members/remove", async (string name, HttpContext ctx) =>
         {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me && db.GetTeam(name) is { } t && t.OwnerId == me.Id)
                 db.RemoveTeamMember(name, (await ctx.Request.ReadFormAsync())["userId"].ToString());
             return Results.Redirect($"/teams/{name}");
         });
-        app.MapPost("/teams/{name}/delete", (string name, HttpContext ctx) =>
+        app.MapPost("/teams/{name}/delete", async (string name, HttpContext ctx) =>
         {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
             if (Auth.Current(ctx) is { } me && db.GetTeam(name) is { } t && t.OwnerId == me.Id) db.DeleteTeam(name);
             return Results.Redirect("/teams");
         });
         app.MapPost("/r/{repo}/teams", async (string repo, HttpContext ctx) =>
         {
-            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
             {
                 IFormCollection form = await ctx.Request.ReadFormAsync();
-                string role = form["role"].ToString() is "write" ? "write" : "read";
                 string team = form["team"].ToString().Trim();
                 if (db.GetTeam(team) is null) return Results.Redirect($"/r/{repo}?err=noteam");
-                db.SetTeamGrant(repo, team, role);
+                db.SetTeamGrant(repo, team, Role(form["role"].ToString()));
             }
             return Results.Redirect($"/r/{repo}");
         });
         app.MapPost("/r/{repo}/teams/remove", async (string repo, HttpContext ctx) =>
         {
-            if (Auth.Current(ctx) is { } me && db.GetRepo(repo) is { } m && m.OwnerId == me.Id)
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
                 db.RemoveTeamGrant(repo, (await ctx.Request.ReadFormAsync())["team"].ToString());
             return Results.Redirect($"/r/{repo}");
         });
     }
+
+    private static IResult BadCsrf() => Results.Text("Invalid or expired form token — go back, reload the page, and retry.", statusCode: 400);
+    private static string Role(string s) => HubDb.IsRole(s) ? s : "read";
 
     private static IResult Teams(HttpContext ctx, HubDb db, Auth.Config cfg)
     {
@@ -138,9 +146,10 @@ public static class Pages
                 b.Append($"""<li><a href="/teams/{E(t.Name)}">{E(t.Name)}</a>{(t.OwnerId == me.Id ? """ <span class="role role-owner">owner</span>""" : "")}<span class="meta">{t.Members.Count} member(s)</span></li>""");
             b.Append("</ul>");
         }
-        b.Append("""
+        b.Append($"""
             <h2>New team</h2>
             <form class="find" method="post" action="/teams">
+              {Auth.CsrfField(ctx)}
               <input name="name" placeholder="team name — builders, admins…">
               <button>Create team</button>
             </form>
@@ -167,7 +176,7 @@ public static class Pages
         foreach (string uid in t.Members)
         {
             string remove = isOwner && uid != t.OwnerId
-                ? $"""<form class="revoke" method="post" action="/teams/{E(name)}/members/remove"><input type="hidden" name="userId" value="{E(uid)}"><button>remove</button></form>"""
+                ? $"""<form class="revoke" method="post" action="/teams/{E(name)}/members/remove">{Auth.CsrfField(ctx)}<input type="hidden" name="userId" value="{E(uid)}"><button>remove</button></form>"""
                 : "";
             b.Append($"""<li>{E(db.GetUser(uid)?.Login ?? "?")}{(uid == t.OwnerId ? """ <span class="role role-owner">owner</span>""" : "")}{remove}</li>""");
         }
@@ -177,10 +186,12 @@ public static class Pages
         {
             b.Append($"""
                 <form class="find" method="post" action="/teams/{E(name)}/members">
+                  {Auth.CsrfField(ctx)}
                   <input name="login" placeholder="username — they must have signed in once">
                   <button>Add member</button>
                 </form>
                 <form class="settings" method="post" action="/teams/{E(name)}/delete" onsubmit="return confirm('Delete team {E(name)}? Its grants are removed.')">
+                  {Auth.CsrfField(ctx)}
                   <button>Delete team</button>
                 </form>
                 """);
@@ -225,9 +236,10 @@ public static class Pages
         {
             string vis = m.Private ? """<span class="vis vis-private">private</span>""" : """<span class="vis vis-public">public</span>""";
             b.Append($"""<p class="meta">{vis} · owned by {E(db.GetUser(m.OwnerId)?.Login ?? "?")}</p>""");
-            if (me is not null && me.Id == m.OwnerId)
+            if (me is not null && Auth.CanManageSettings(db, name, me.Id))
                 b.Append($"""
                     <form class="settings" method="post" action="/r/{E(name)}/settings">
+                      {Auth.CsrfField(ctx)}
                       <input type="hidden" name="private" value="{(m.Private ? "off" : "on")}">
                       <button>Make {(m.Private ? "public" : "private")}</button>
                     </form>
@@ -468,11 +480,12 @@ public static class Pages
         {
             b.Append("<ul class=\"repos\">");
             foreach (TokenInfo t in tokens)
-                b.Append($"""<li><code>{E(t.Prefix)}…</code> <span class="cmsg">{E(t.Label)}</span><span class="meta">created {When(t.CreatedAt)}{(t.LastUsedAt is null ? " · never used" : $" · last used {When(t.LastUsedAt)}")}</span><form class="revoke" method="post" action="/account/tokens/revoke"><input type="hidden" name="prefix" value="{E(t.Prefix)}"><button>revoke</button></form></li>""");
+                b.Append($"""<li><code>{E(t.Prefix)}…</code> <span class="cmsg">{E(t.Label)}</span><span class="meta">created {When(t.CreatedAt)}{(t.LastUsedAt is null ? " · never used" : $" · last used {When(t.LastUsedAt)}")}</span><form class="revoke" method="post" action="/account/tokens/revoke">{Auth.CsrfField(ctx)}<input type="hidden" name="prefix" value="{E(t.Prefix)}"><button>revoke</button></form></li>""");
             b.Append("</ul>");
         }
-        b.Append("""
+        b.Append($"""
             <form class="find" method="post" action="/account/tokens">
+              {Auth.CsrfField(ctx)}
               <input name="label" placeholder="label — laptop, backup-server…">
               <button>Create token</button>
             </form>
@@ -506,61 +519,65 @@ public static class Pages
     private static void RenderCollaborators(StringBuilder b, HttpContext ctx, HubDb db, string name, HubRepoMeta? m, HubUser? me)
     {
         if (m is null) return;
-        bool isOwner = me is not null && me.Id == m.OwnerId;
+        bool canPeople = me is not null && Auth.CanManagePeople(db, name, me.Id); // owner/admin manage collaborators
         var collabs = db.CollabsOf(name);
         var teamGrants = db.TeamGrantsOf(name);
-        if (collabs.Count == 0 && teamGrants.Count == 0 && !isOwner) return; // nothing to show, no controls to offer
+        if (collabs.Count == 0 && teamGrants.Count == 0 && !canPeople) return; // nothing to show, no controls to offer
 
         b.Append("<h2>Collaborators</h2>");
-        if (isOwner && ctx.Request.Query["err"] == "nouser")
+        if (canPeople && ctx.Request.Query["err"] == "nouser")
             b.Append("""<p class="empty">That user hasn't signed in to the hub yet — they need to sign in once before you can add them.</p>""");
 
         b.Append("<ul class=\"repos\">");
         b.Append($"""<li>{E(db.GetUser(m.OwnerId)?.Login ?? "?")} <span class="role role-owner">owner</span></li>""");
         foreach (Collab c in collabs)
         {
-            string remove = isOwner
-                ? $"""<form class="revoke" method="post" action="/r/{E(name)}/collaborators/remove"><input type="hidden" name="userId" value="{E(c.UserId)}"><button>remove</button></form>"""
+            string remove = canPeople
+                ? $"""<form class="revoke" method="post" action="/r/{E(name)}/collaborators/remove">{Auth.CsrfField(ctx)}<input type="hidden" name="userId" value="{E(c.UserId)}"><button>remove</button></form>"""
                 : "";
             b.Append($"""<li>{E(db.GetUser(c.UserId)?.Login ?? "?")} <span class="role role-{E(c.Role)}">{E(c.Role)}</span>{remove}</li>""");
         }
         b.Append("</ul>");
 
-        if (isOwner)
+        if (canPeople)
             b.Append($"""
                 <form class="find" method="post" action="/r/{E(name)}/collaborators">
+                  {Auth.CsrfField(ctx)}
                   <input name="login" placeholder="username — they must have signed in once">
-                  <select name="role">{Opt("read", "read")}{Opt("write", null)}</select>
+                  <select name="role">{RoleOpts()}</select>
                   <button>Add collaborator</button>
                 </form>
                 """);
 
-        if (teamGrants.Count == 0 && !isOwner) return;
+        if (teamGrants.Count == 0 && !canPeople) return;
         b.Append("<h2>Teams with access</h2>");
-        if (isOwner && ctx.Request.Query["err"] == "noteam")
+        if (canPeople && ctx.Request.Query["err"] == "noteam")
             b.Append("""<p class="empty">No team by that name.</p>""");
         if (teamGrants.Count > 0)
         {
             b.Append("<ul class=\"repos\">");
             foreach (TeamGrant g in teamGrants)
             {
-                string remove = isOwner
-                    ? $"""<form class="revoke" method="post" action="/r/{E(name)}/teams/remove"><input type="hidden" name="team" value="{E(g.TeamName)}"><button>remove</button></form>"""
+                string remove = canPeople
+                    ? $"""<form class="revoke" method="post" action="/r/{E(name)}/teams/remove">{Auth.CsrfField(ctx)}<input type="hidden" name="team" value="{E(g.TeamName)}"><button>remove</button></form>"""
                     : "";
                 string teamName = db.GetTeam(g.TeamName) is not null ? $"""<a href="/teams/{E(g.TeamName)}">{E(g.TeamName)}</a>""" : E(g.TeamName);
                 b.Append($"""<li>👥 {teamName} <span class="role role-{E(g.Role)}">{E(g.Role)}</span>{remove}</li>""");
             }
             b.Append("</ul>");
         }
-        if (isOwner)
+        if (canPeople)
             b.Append($"""
                 <form class="find" method="post" action="/r/{E(name)}/teams">
+                  {Auth.CsrfField(ctx)}
                   <input name="team" placeholder="team name">
-                  <select name="role">{Opt("read", "read")}{Opt("write", null)}</select>
+                  <select name="role">{RoleOpts()}</select>
                   <button>Grant team</button>
                 </form>
                 """);
     }
+
+    private static string RoleOpts() => Opt("read", "read") + Opt("write", null) + Opt("maintain", null) + Opt("admin", null);
 
     private static bool CanSee(HttpContext ctx, HubDb db, Auth.Config cfg, string repo) =>
         Auth.CanRead(cfg, db, repo, Auth.Current(ctx)?.Id, admin: false);

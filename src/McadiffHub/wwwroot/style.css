@@ -114,6 +114,8 @@ form.find button:hover { border-color: var(--link); }
 /* collaborator role badges */
 .role { font-size: 11px; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; font-weight: 700; background: #1f2937; color: var(--muted); }
 .role-owner { background: #1d2b3a; color: var(--link); }
+.role-admin { background: #2a1b33; color: #c77dff; }
+.role-maintain { background: #13282b; color: #4dd0c0; }
 .role-write { background: #11271b; color: var(--green); }
 .role-read { background: #1f2937; color: var(--muted); }
 

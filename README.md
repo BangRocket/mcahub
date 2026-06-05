@@ -62,9 +62,12 @@ The hub runs in one of three modes, chosen by what you configure:
 - **Accounts** *(OAuth configured)*: real users sign in via OAuth; each gets personal access tokens for the
   CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcadiff push/clone` against a
   private world uses a personal access token (mint one at `/account`) — exactly how GitHub handles `git push`.
-  An owner shares a private world by adding **collaborators** (read or write) on the world's page, or by
-  granting a **team** (a named group managed at `/teams`) — every member inherits the team's role. Effective
-  access is the strongest of owner, direct collaborator, and any team grant.
+  An owner shares a private world by adding **collaborators** on the world's page, or by granting a **team**
+  (a named group managed at `/teams`) — every member inherits the team's role. Roles form a ladder:
+  **read** (browse/clone) → **write** (+ push) → **maintain** (+ change visibility) → **admin** (+ manage
+  collaborators & team grants), with the **owner** above all. Effective access is the strongest of owner,
+  direct collaborator, and any team grant. Every state-changing form is **CSRF-protected** with an
+  antiforgery token (on top of the `SameSite=Lax` session cookie).
 
 | Accounts env var | Default | Purpose |
 |---|---|---|
@@ -126,8 +129,11 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
   the shared `CanRead`/`CanWrite` rules used by both the web pages and the transport. `HubDb` keeps users,
   **hashed** tokens (the plaintext is shown once and never stored), per-repo owner/visibility, collaborator
   grants, and teams + team grants. `HubDb.RoleOf` resolves a user's effective role on a repo
-  (owner > write > read > none) by folding the owner, any direct collaborator grant, and any team grant the
-  user inherits — both `CanRead`/`CanWrite` and the UI go through it, so they can't drift.
+  (owner > admin > maintain > write > read > none) by folding the owner, any direct collaborator grant, and
+  any team grant the user inherits — `CanRead`/`CanWrite`, the `CanManageSettings`/`CanManagePeople`
+  capability checks, and the UI all go through it, so they can't drift. State-changing POSTs are validated
+  with ASP.NET antiforgery tokens (issued via a hidden field, validated manually so the Bearer-authenticated
+  transport POSTs are never touched).
 
 ## Status & roadmap
 
@@ -136,8 +142,7 @@ Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two
 cache), **rendered maps** + a **time-machine scrubber**, and **accounts** (OAuth sign-in, per-user tokens,
 public/private worlds, collaborators, teams). Natural next steps (some shared with the mcadiff GUI RFC):
 
-- Antiforgery tokens on the state-changing POSTs (today they rely on `SameSite=Lax`), and finer roles
-  (admin/maintain) beyond read/write.
+- An audit log of who changed roles / visibility / refs, and ownership transfer.
 - Map thumbnails on the backup timeline, and a focusable region/coordinate jump in the map.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
