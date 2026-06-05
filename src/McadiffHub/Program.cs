@@ -97,9 +97,13 @@ WebApplication app = builder.Build();
 // handler builds matches the https callback registered with the provider. Must run before auth.
 if ((app.Configuration["BehindProxy"] ?? Environment.GetEnvironmentVariable("MCAHUB_BEHIND_PROXY")) is "1" or "true")
 {
-    var fwd = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost };
-    fwd.KnownIPNetworks.Clear();             // the hub is only reachable via the proxy, so trust its headers
-    fwd.KnownProxies.Clear();
+    var fwd = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+    };
+    // Trust X-Forwarded-* only from the configured proxy (default loopback) — never from any client (#7).
+    // X-Forwarded-For also gives the per-IP rate limiter (#10) the real client IP behind the proxy.
+    ForwardedProxies.Apply(fwd, app.Configuration["TrustedProxy"] ?? Environment.GetEnvironmentVariable("MCAHUB_TRUSTED_PROXY"));
     app.UseForwardedHeaders(fwd);
 }
 
