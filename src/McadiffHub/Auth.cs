@@ -125,8 +125,9 @@ public static class Auth
             return cfg.DevLogin ? Results.Redirect("/auth/dev") : Results.Redirect("/");
         });
 
-        app.MapGet("/auth/logout", async (HttpContext ctx) =>
+        app.MapPost("/auth/logout", async (HttpContext ctx) =>
         {
+            if (!await CsrfOk(ctx)) return Results.Text("Invalid or expired form token — reload and retry.", statusCode: 400);
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.Redirect("/");
         });
@@ -174,7 +175,7 @@ public static class Auth
         HubUser? u = Current(ctx);
         if (u is null) return """<a class="navlink" href="/auth/login">Sign in</a>""";
         string av = u.Avatar is { Length: > 0 } ? $"""<img class="avatar" src="{Html.E(u.Avatar)}" alt="">""" : "";
-        return $"""<a class="navlink" href="/teams">Teams</a><a class="me" href="/account">{av}{Html.E(u.Login)}</a><a class="navlink" href="/auth/logout">Sign out</a>""";
+        return $"""<a class="navlink" href="/teams">Teams</a><a class="me" href="/account">{av}{Html.E(u.Login)}</a><form class="logout" method="post" action="/auth/logout">{CsrfField(ctx)}<button class="navlink" type="submit">Sign out</button></form>""";
     }
 
     // ---- CLI identity (bearer token) ----
@@ -265,7 +266,8 @@ public static class Auth
         return h.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? h["Bearer ".Length..].Trim() : h.Trim();
     }
 
-    /// <summary>Only permit same-site relative redirect targets — never an absolute URL (open-redirect guard).</summary>
-    private static string Local(string? url) =>
-        url is { Length: > 0 } && url[0] == '/' && (url.Length == 1 || url[1] != '/') ? url : "/account";
+    /// <summary>Only permit same-site relative redirect targets — never an absolute URL (open-redirect guard).
+    /// Blocks both <c>//host</c> and <c>/\host</c> (legacy browsers treat <c>/\</c> as <c>//</c>).</summary>
+    public static string Local(string? url) =>
+        url is { Length: > 0 } && url[0] == '/' && (url.Length == 1 || (url[1] != '/' && url[1] != '\\')) ? url : "/account";
 }

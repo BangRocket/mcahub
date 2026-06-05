@@ -120,8 +120,15 @@ public static class Transport
 
         try { await body(new RemoteService(store.Open(repo), allowWrite: true)); return Results.Ok(); }
         catch (BadHttpRequestException e) { return Results.Text(e.Message, statusCode: e.StatusCode); } // body too large → 413
-        catch (UnauthorizedAccessException e) { return Results.Text(e.Message, statusCode: 403); }
-        catch (Exception e) { return Results.Text(e.Message, statusCode: 400); }
+        catch (UnauthorizedAccessException) { return Results.NotFound(); }                              // e.g. path-confinement; no detail, no oracle
+        catch (InvalidOperationException e) { return Results.Text(e.Message, statusCode: 400); }        // FF/stale-push etc. — safe operational text
+        catch (InvalidDataException e) { return Results.Text(e.Message, statusCode: 400); }             // bad object/pack
+        catch (Exception e)                                                                            // anything else may carry internal paths → don't echo it
+        {
+            ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("McadiffHub.Transport")
+                .LogError(e, "transport write failed for {Repo}", repo);
+            return Results.Text("internal error", statusCode: 500);
+        }
     }
 
     /// <summary>Buffer a push body, refusing anything past <paramref name="maxBody"/> bytes <em>before</em>
