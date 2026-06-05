@@ -1,0 +1,1 @@
+- [Seam structure, route map, guard locations, audit findings](seam-structure.md) — 2026-06-05 full audit: route→RemoteService map, all core guard locations, 9 ranked findings including unbounded body buffer (CRITICAL) and ownership takeover (HIGH)

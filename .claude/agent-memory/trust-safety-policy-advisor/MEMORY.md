@@ -1,0 +1,1 @@
+- [Project T&S posture](project_posture.md) — overall posture, public surfaces, all policy gaps found in 2026-06-05 audit, key code locations
