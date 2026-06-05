@@ -2,5 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/McadiffHub/McadiffHub.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/McadiffHub.Tests/McadiffHub.Tests.csproj" />
+  </Folder>
   <Project Path="../mca-git/src/McaDiff/McaDiff.csproj" />
 </Solution>
