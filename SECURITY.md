@@ -53,7 +53,10 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
 - **Repo names** are validated `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` before any path is built — no `/`, can't
   escape the data dir.
 - **Tokens** are never stored in the clear: SHA-256 of `mcahub_<30 random bytes>`, shown once, resolved by
-  hash. The master/admin token is compared in constant time.
+  hash. Each carries a **scope** (`read`/`write`, enforced on the transport) and an optional **expiry**
+  (rejected once past), can be **regenerated**, and **"sign out everywhere"** revokes all of a user's
+  tokens and bumps a per-user **epoch** that invalidates every existing web session. The master/admin
+  token is compared in constant time (and may be supplied hashed — see below).
 - **Private repos return 404, not 403**, on both the web pages and the transport (`info/refs`, `have`,
   `objects`) — a non-collaborator can't even confirm a private world exists.
 - **One source of truth for authz:** `HubDb.RoleOf` (owner > admin > maintain > write > read) feeds the

@@ -35,7 +35,9 @@ public sealed class HubDb
         lock (_lock)
         {
             int i = _db.Users.FindIndex(u => u.Id == id);
-            var user = new HubUser(id, login, name, avatar, i >= 0 ? _db.Users[i].CreatedAt : Now());
+            var user = new HubUser(id, login, name, avatar,
+                i >= 0 ? _db.Users[i].CreatedAt : Now(),
+                i >= 0 ? _db.Users[i].Epoch : 0); // preserve the session epoch across logins (don't reset "sign out everywhere")
             if (i >= 0) _db.Users[i] = user; else _db.Users.Add(user);
             Save();
             return user;
@@ -59,10 +61,10 @@ public sealed class HubDb
 
     /// <summary>Mint a new personal access token. The plaintext is returned <em>once</em>; only its
     /// SHA-256 is stored, so a leak of the DB can't reconstruct usable tokens.</summary>
-    public string CreateToken(string userId, string label)
+    public string CreateToken(string userId, string label, string scope = "write", string? expiresAt = null)
     {
         string secret = "mcahub_" + Base64Url(RandomNumberGenerator.GetBytes(30));
-        var rec = new TokenRecord(Sha(secret), secret[..14], userId, Trim(label), Now(), null);
+        var rec = new TokenRecord(Sha(secret), secret[..14], userId, Trim(label), Now(), null, Scope(scope), expiresAt);
         lock (_lock)
         {
             _db.Tokens.Add(rec);
@@ -72,11 +74,30 @@ public sealed class HubDb
         return secret;
     }
 
+    /// <summary>Mint a replacement for a token (same label/scope/expiry), revoking the old one. Returns the
+    /// new plaintext, or null if no such token.</summary>
+    public string? RegenerateToken(string userId, string prefix)
+    {
+        lock (_lock)
+        {
+            int i = _db.Tokens.FindIndex(t => t.UserId == userId && t.Prefix == prefix);
+            if (i < 0) return null;
+            TokenRecord old = _db.Tokens[i];
+            string secret = "mcahub_" + Base64Url(RandomNumberGenerator.GetBytes(30));
+            var fresh = new TokenRecord(Sha(secret), secret[..14], userId, old.Label, Now(), null, Scope(old.Scope), old.ExpiresAt);
+            _byHash.Remove(old.Hash);
+            _db.Tokens[i] = fresh;
+            _byHash[fresh.Hash] = fresh;
+            Save();
+            return secret;
+        }
+    }
+
     public IReadOnlyList<TokenInfo> ListTokens(string userId)
     {
         lock (_lock)
             return _db.Tokens.Where(t => t.UserId == userId)
-                .Select(t => new TokenInfo(t.Prefix, t.Label, t.CreatedAt, t.LastUsedAt)).ToList();
+                .Select(t => new TokenInfo(t.Prefix, t.Label, t.CreatedAt, t.LastUsedAt, Scope(t.Scope), t.ExpiresAt)).ToList();
     }
 
     public bool RevokeToken(string userId, string prefix)
@@ -92,21 +113,50 @@ public sealed class HubDb
         }
     }
 
-    /// <summary>Resolve a presented token to its owning user id (or null), stamping last-used.
-    /// Lookup is by hash, so it never compares the secret itself.</summary>
-    public string? ResolveToken(string secret)
+    /// <summary>Revoke every token a user holds (part of "sign out everywhere"). Returns the count removed.</summary>
+    public int RevokeAllTokens(string userId)
+    {
+        lock (_lock)
+        {
+            int n = _db.Tokens.RemoveAll(t => t.UserId == userId && _byHash.Remove(t.Hash));
+            if (n > 0) Save();
+            return n;
+        }
+    }
+
+    /// <summary>Advance a user's session epoch so existing web sessions (carrying the old epoch) are
+    /// rejected on their next request. Returns the new epoch.</summary>
+    public int BumpEpoch(string userId)
+    {
+        lock (_lock)
+        {
+            int i = _db.Users.FindIndex(u => u.Id == userId);
+            if (i < 0) return 0;
+            _db.Users[i] = _db.Users[i] with { Epoch = _db.Users[i].Epoch + 1 };
+            Save();
+            return _db.Users[i].Epoch;
+        }
+    }
+
+    /// <summary>Resolve a presented token to its owner + scope (or null if unknown or expired), stamping
+    /// last-used. Lookup is by hash, so it never compares the secret itself.</summary>
+    public TokenAuth? ResolveToken(string secret)
     {
         string hash = Sha(secret);
         lock (_lock)
         {
             if (!_byHash.TryGetValue(hash, out TokenRecord? t)) return null;
+            if (t.ExpiresAt is { } exp && DateTimeOffset.TryParse(exp, out DateTimeOffset when) && when <= DateTimeOffset.UtcNow)
+                return null; // expired
             int i = _db.Tokens.IndexOf(t);
             _db.Tokens[i] = t with { LastUsedAt = Now() };
             _byHash[hash] = _db.Tokens[i];
             Save();
-            return t.UserId;
+            return new TokenAuth(t.UserId, Scope(t.Scope));
         }
     }
+
+    private static string Scope(string? s) => s == "read" ? "read" : "write"; // anything but explicit read ⇒ write (back-compat)
 
     // ---- repo ownership / visibility ----
 
@@ -317,12 +367,14 @@ public sealed class HubDb
         public List<TeamGrant> TeamGrants { get; init; } = [];
     }
 
-    private sealed record TokenRecord(string Hash, string Prefix, string UserId, string Label, string CreatedAt, string? LastUsedAt);
+    private sealed record TokenRecord(string Hash, string Prefix, string UserId, string Label, string CreatedAt,
+        string? LastUsedAt, string Scope = "write", string? ExpiresAt = null);
 }
 
-public sealed record HubUser(string Id, string Login, string Name, string Avatar, string CreatedAt);
+public sealed record HubUser(string Id, string Login, string Name, string Avatar, string CreatedAt, int Epoch = 0);
 public sealed record HubRepoMeta(string Name, string OwnerId, bool Private, string CreatedAt);
-public sealed record TokenInfo(string Prefix, string Label, string CreatedAt, string? LastUsedAt);
+public sealed record TokenInfo(string Prefix, string Label, string CreatedAt, string? LastUsedAt, string Scope = "write", string? ExpiresAt = null);
+public sealed record TokenAuth(string UserId, string Scope); // resolved Bearer token: who + what it can do
 public sealed record Collab(string Repo, string UserId, string Role); // Role: "read" | "write"
 public sealed record Team(string Name, string OwnerId, List<string> Members, string CreatedAt);
 public sealed record TeamGrant(string Repo, string TeamName, string Role); // Role: "read" | "write"

@@ -76,7 +76,7 @@ public static class Transport
 
     private static bool Readable(string repo, HttpRequest req, HubDb db, Auth.Config cfg, AuthThrottle throttle)
     {
-        (string? uid, bool admin) = Auth.Identify(req, cfg, db, out bool badToken);
+        (string? uid, bool admin, _) = Auth.Identify(req, cfg, db, out bool badToken); // any valid token may read
         RecordToken(req, cfg, throttle, badToken);
         return Auth.CanRead(cfg, db, repo, uid, admin);
     }
@@ -93,13 +93,15 @@ public static class Transport
         AuthThrottle throttle, bool adoptUnowned, AuditLog audit, Func<RemoteService, string, Task> body)
     {
         if (!RepoStore.IsValidName(repo)) return Results.NotFound();
-        (string? uid, bool admin) = Auth.Identify(ctx.Request, cfg, db, out bool badToken);
+        (string? uid, bool admin, string? scope) = Auth.Identify(ctx.Request, cfg, db, out bool badToken);
         RecordToken(ctx.Request, cfg, throttle, badToken);
 
         if (cfg.Accounts)
         {
             if (!admin && uid is null)
                 return Results.Text("authenticate with a personal access token: mcadiff push … --token <PAT>", statusCode: 401);
+            if (!admin && scope != "write") // a read-scoped PAT can clone/fetch but not push (#18)
+                return Results.Text("this token is read-only — mint a write-scoped token to push", statusCode: 403);
             if (!admin && db.GetRepo(repo) is not null) // an owned repo: enforce the write role
             {
                 if (!Auth.CanWrite(cfg, db, repo, uid, admin))
