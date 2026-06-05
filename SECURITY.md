@@ -113,6 +113,18 @@ Honest list of the thinner spots — these are the bugs I'd expect a review to f
   path confinement. Core-level vulnerabilities belong in that repo, but flag the boundary if the hub feeds it
   unsafely.
 
+## Supply chain
+
+The hub references the core via a **sibling `ProjectReference`** (`../mca-git/...`), so it ships the core's
+transitive NuGet deps (`fNbt`, `K4os.Compression.LZ4`, and the cloud SDKs the core carries) — which the
+hub's own Dependabot doesn't see, since the hub declares no direct runtime packages. CI compensates by
+running `dotnet list package --vulnerable --include-transitive` over the **shipped graph** (with the core
+checked out) and **failing on a known CVE** — `fNbt` in particular sits directly on attacker-controlled
+bytes (anonymous push → render). The intended end state (cross-repo) is to publish the core as a
+**versioned NuGet** and replace the sibling reference with a **pinned `PackageReference`**, so Dependabot
+tracks the transitive graph and the unused cloud SDKs can be trimmed. CI pins the core to a known commit
+(`41f6f2f`) until then.
+
 ## Reporting
 
 Open an issue (or PR) on this repo. For anything you'd rather not file publicly, contact the owner directly.
