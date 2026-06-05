@@ -24,6 +24,11 @@ string cacheDir = builder.Configuration["CacheDir"] ?? Environment.GetEnvironmen
 string mapDir = builder.Configuration["MapDir"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAPS") ?? Path.Combine(sibling, "maps");
 string dbPath = builder.Configuration["DbPath"] ?? Environment.GetEnvironmentVariable("MCAHUB_DB") ?? Path.Combine(sibling, "hub.json");
 
+// Cap how much a single push may buffer. Kestrel's default is 30 MB; worlds can be larger, so we raise
+// it to 256 MiB (matching the mcadiff core's RepoServer) and enforce the same ceiling while streaming.
+long maxPushBytes = ParsePositiveLong(builder.Configuration["MaxPushBytes"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_PUSH_BYTES")) ?? 256L * 1024 * 1024;
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = maxPushBytes);
+
 var store = new RepoStore(dataDir);
 var cache = new WorldCache(cacheDir);
 var maps = new MapCache(mapDir, cache);
@@ -49,13 +54,16 @@ if (auth.Accounts)
     app.UseAuthentication();                  // populates ctx.User from the session cookie (access checks are our own)
 
 Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback · /auth/logout · /auth/dev
-Transport.MapTransport(app, store, db, auth); // mcadiff clone/fetch/push under /r/{repo}/…
+Transport.MapTransport(app, store, db, auth, maxPushBytes); // mcadiff clone/fetch/push under /r/{repo}/…
 Pages.MapPages(app, store, cache, maps, db, auth); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
     : auth.MasterToken is null ? "open push" : "token-gated push";
 app.Logger.LogInformation("mcadiff-hub serving worlds from {DataDir} · auth: {Mode}", Path.GetFullPath(dataDir), mode);
 app.Run();
+
+// Parse a positive byte count from config/env; null (use the default) for missing or invalid input.
+static long? ParsePositiveLong(string? s) => long.TryParse(s, out long v) && v > 0 ? v : null;
 
 // A minimal dotenv reader: KEY=VALUE lines, '#' comments, optional quotes. Never overrides a real
 // environment variable, so the shell still wins over the file.

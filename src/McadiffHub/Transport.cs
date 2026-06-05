@@ -13,7 +13,7 @@ namespace McadiffHub;
 /// </summary>
 public static class Transport
 {
-    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg)
+    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody)
     {
         // Advertise refs. A valid-but-not-yet-created name advertises an empty remote, so a first
         // `push` to it succeeds and auto-creates the world (hub convenience).
@@ -46,13 +46,13 @@ public static class Transport
 
         // Upload one object (single-object fallback).
         app.MapPost("/r/{repo}/objects/{hash}", async (string repo, string hash, HttpRequest req, HttpContext ctx) =>
-            await Write(store, db, cfg, repo, ctx, async s => s.PutObject(hash, await Bytes(req))));
+            await Write(store, db, cfg, repo, ctx, async s => s.PutObject(hash, await Bytes(req, maxBody))));
 
         // Upload a whole pack (the common push path).
         app.MapPost("/r/{repo}/pack", async (string repo, HttpRequest req, HttpContext ctx) =>
             await Write(store, db, cfg, repo, ctx, async s =>
             {
-                (byte[] pack, byte[] idx) = PackTransfer.UnframeBody(await Bytes(req));
+                (byte[] pack, byte[] idx) = PackTransfer.UnframeBody(await Bytes(req, maxBody));
                 s.PutPack(pack, idx);
             }));
 
@@ -99,14 +99,27 @@ public static class Transport
         if (cfg.Accounts && uid is not null) db.EnsureRepo(repo, uid, isPrivate: false); // claim ownership on first push
 
         try { await body(new RemoteService(store.Open(repo), allowWrite: true)); return Results.Ok(); }
+        catch (BadHttpRequestException e) { return Results.Text(e.Message, statusCode: e.StatusCode); } // body too large → 413
         catch (UnauthorizedAccessException e) { return Results.Text(e.Message, statusCode: 403); }
         catch (Exception e) { return Results.Text(e.Message, statusCode: 400); }
     }
 
-    private static async Task<byte[]> Bytes(HttpRequest req)
+    /// <summary>Buffer a push body, refusing anything past <paramref name="maxBody"/> bytes <em>before</em>
+    /// it is fully read — chunked bodies carry no Content-Length, so the cap is enforced as we stream.
+    /// Throws a 413 <see cref="BadHttpRequestException"/> (caught in <see cref="Write"/>).</summary>
+    private static async Task<byte[]> Bytes(HttpRequest req, long maxBody)
     {
         using var ms = new MemoryStream();
-        await req.Body.CopyToAsync(ms);
+        byte[] buf = new byte[81920];
+        long total = 0;
+        int r;
+        while ((r = await req.Body.ReadAsync(buf)) > 0)
+        {
+            total += r;
+            if (total > maxBody)
+                throw new BadHttpRequestException("request body too large", StatusCodes.Status413PayloadTooLarge);
+            ms.Write(buf, 0, r);
+        }
         return ms.ToArray();
     }
 }
