@@ -51,4 +51,24 @@ public class AuditLogTests
         var log = new AuditLog(Path.Combine(tmp.Path, "nope.jsonl"));
         Assert.Empty(log.Recent("any", 10));
     }
+
+    [Fact]
+    public void ForgetActor_erases_a_users_identity_but_keeps_the_actions() // audit: GDPR erasure of audit PII
+    {
+        using var tmp = new TempDir();
+        var log = new AuditLog(Path.Combine(tmp.Path, "audit.jsonl"));
+        log.Append("alice", "visibility", "w", "public→private", "web", "203.0.113.7");
+        log.Append("bob", "collaborator.add", "w", "carol=read", "web", "198.51.100.2");
+
+        log.ForgetActor("alice");
+
+        var entries = log.Recent("w", 10);
+        AuditEntry alice = entries.Single(e => e.Action == "visibility");
+        Assert.Equal("deleted-user", alice.Actor); // login pseudonymized
+        Assert.Null(alice.Ip);                      // IP erased
+        Assert.Equal("public→private", alice.Detail); // the action itself survives
+        AuditEntry bob = entries.Single(e => e.Action == "collaborator.add");
+        Assert.Equal("bob", bob.Actor);             // another user's entry untouched
+        Assert.Equal("198.51.100.2", bob.Ip);
+    }
 }

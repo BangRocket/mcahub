@@ -45,4 +45,32 @@ public sealed class AuditLog(string path)
             return hits.Count > limit ? hits.GetRange(0, limit) : hits;
         }
     }
+
+    /// <summary>GDPR/CCPA erasure: pseudonymize a deleted user's entries in place — their actor login and source
+    /// IP become a tombstone, so the record of <em>actions</em> survives but their identity doesn't. This is the
+    /// one operation that rewrites the log (a lawful erasure, not a falsification of the trail). (audit)</summary>
+    public void ForgetActor(string login)
+    {
+        lock (_lock)
+        {
+            if (!File.Exists(_path)) return;
+            string[] lines = File.ReadAllLines(_path);
+            bool changed = false;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Length == 0) continue;
+                AuditEntry? e;
+                try { e = JsonSerializer.Deserialize<AuditEntry>(lines[i]); } catch { continue; }
+                if (e is { } x && x.Actor == login)
+                {
+                    lines[i] = JsonSerializer.Serialize(x with { Actor = "deleted-user", Ip = null });
+                    changed = true;
+                }
+            }
+            if (!changed) return;
+            string tmp = _path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+            File.WriteAllText(tmp, string.Join("\n", lines) + "\n");
+            File.Move(tmp, _path, overwrite: true); // atomic publish
+        }
+    }
 }

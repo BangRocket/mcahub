@@ -25,7 +25,11 @@ public static class Auth
 
     /// <summary>One enabled passwordless sign-in provider (a named OAuth scheme).</summary>
     public sealed record Provider(string Name, string Label, ProviderKind Kind, string CallbackPath,
-        string ClientId, string ClientSecret, string AuthUrl, string TokenUrl, string UserUrl, string Scope);
+        string ClientId, string ClientSecret, string AuthUrl, string TokenUrl, string UserUrl, string Scope)
+    {
+        // Never echo the client secret — the default record ToString would dump every field. (audit)
+        public override string ToString() => $"Provider {{ Name = {Name}, Kind = {Kind}, ClientId = {ClientId}, ClientSecret = *** }}";
+    }
 
     public sealed record Config(bool DevLogin, IReadOnlyList<Provider> Providers,
         string? MasterPlaintext, IReadOnlyList<string> MasterHashes)
@@ -34,6 +38,8 @@ public static class Auth
         public bool Oauth => Providers.Count > 0;
         /// <summary>Whether a master/admin token is configured at all (plaintext or hashed).</summary>
         public bool HasMaster => MasterPlaintext is not null || MasterHashes.Count > 0;
+        // Redacted so logging or interpolating the config never echoes the master token or a provider secret. (audit)
+        public override string ToString() => $"Config {{ DevLogin = {DevLogin}, Providers = {Providers.Count}, Master = {(HasMaster ? "set" : "none")} }}";
     }
 
     public static Config Read(IConfiguration c)

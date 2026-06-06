@@ -87,6 +87,7 @@ public static class Pages
                 IReadOnlyList<string> owned = db.DeleteUser(me.Id); // identity, tokens, grants, owned teams + repo metas
                 foreach (string r in owned) PurgeRepoStorage(r, store, cache, maps);
                 Log(ctx, audit, "account.delete", null, $"deleted account + {owned.Count} world(s)");
+                audit.ForgetActor(me.Login); // erase the user's login + IP from prior audit entries (incl. the one just logged)
             }
             return Results.Redirect("/"); // the now-deleted user's session is rejected on its next request
         });
