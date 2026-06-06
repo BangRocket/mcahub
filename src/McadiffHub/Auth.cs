@@ -19,12 +19,19 @@ namespace McadiffHub;
 /// </summary>
 public static class Auth
 {
-    public sealed record Config(
-        bool Accounts, bool Oauth, bool DevLogin, string Provider,
-        string? ClientId, string? ClientSecret,
-        string AuthUrl, string TokenUrl, string UserUrl, string Scope,
+    /// <summary>How a provider's identity is mapped. Generic/GitHub/Microsoft share the OAuth-userinfo
+    /// mapping; Discord needs a small variant; Minecraft runs the Xbox/XSTS chain instead of a userinfo GET.</summary>
+    public enum ProviderKind { Generic, GitHub, Microsoft, Discord, Minecraft }
+
+    /// <summary>One enabled passwordless sign-in provider (a named OAuth scheme).</summary>
+    public sealed record Provider(string Name, string Label, ProviderKind Kind, string CallbackPath,
+        string ClientId, string ClientSecret, string AuthUrl, string TokenUrl, string UserUrl, string Scope);
+
+    public sealed record Config(bool DevLogin, IReadOnlyList<Provider> Providers,
         string? MasterPlaintext, IReadOnlyList<string> MasterHashes)
     {
+        public bool Accounts => Providers.Count > 0 || DevLogin;
+        public bool Oauth => Providers.Count > 0;
         /// <summary>Whether a master/admin token is configured at all (plaintext or hashed).</summary>
         public bool HasMaster => MasterPlaintext is not null || MasterHashes.Count > 0;
     }
@@ -35,29 +42,51 @@ public static class Auth
         // config-first then env (matches V), so tests can drive the mode via IConfiguration
         bool Flag(string key, string env) => V(key, env) is "1" or "true" or "TRUE";
 
-        string? clientId = V("OAuthClientId", "MCAHUB_OAUTH_CLIENT_ID");
-        string? clientSecret = V("OAuthClientSecret", "MCAHUB_OAUTH_CLIENT_SECRET");
-        bool oauth = clientId is { Length: > 0 } && clientSecret is { Length: > 0 };
-        bool dev = Flag("DevLogin", "MCAHUB_DEV_LOGIN");
+        var providers = new List<Provider>();
+
+        // Legacy single generic provider (back-compat): MCAHUB_OAUTH_CLIENT_ID/_SECRET keeps the old
+        // /auth/callback path so existing GitHub/GitLab/Gitea setups don't have to re-register.
+        if (V("OAuthClientId", "MCAHUB_OAUTH_CLIENT_ID") is { Length: > 0 } gid
+            && V("OAuthClientSecret", "MCAHUB_OAUTH_CLIENT_SECRET") is { Length: > 0 } gsecret)
+        {
+            string name = V("OAuthProvider", "MCAHUB_OAUTH_PROVIDER") ?? "github";
+            providers.Add(new Provider(name, Title(name), ProviderKind.Generic, "/auth/callback", gid, gsecret,
+                V("OAuthAuthUrl", "MCAHUB_OAUTH_AUTH_URL") ?? "https://github.com/login/oauth/authorize",
+                V("OAuthTokenUrl", "MCAHUB_OAUTH_TOKEN_URL") ?? "https://github.com/login/oauth/access_token",
+                V("OAuthUserUrl", "MCAHUB_OAUTH_USER_URL") ?? "https://api.github.com/user",
+                V("OAuthScope", "MCAHUB_OAUTH_SCOPE") ?? "read:user"));
+        }
+
+        // First-class providers, each enabled iff its id+secret are set (same gate as the generic one).
+        void Add(string name, string label, ProviderKind kind, string auth, string token, string user, string scope)
+        {
+            string up = name.ToUpperInvariant();
+            if (V($"OAuth{label}ClientId", $"MCAHUB_OAUTH_{up}_CLIENT_ID") is { Length: > 0 } id
+                && V($"OAuth{label}ClientSecret", $"MCAHUB_OAUTH_{up}_CLIENT_SECRET") is { Length: > 0 } sec)
+                providers.Add(new Provider(name, label, kind, $"/auth/callback/{name}", id, sec, auth, token, user, scope));
+        }
+
+        Add("github", "GitHub", ProviderKind.GitHub,
+            "https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com/user", "read:user");
+        string tenant = V("OAuthMicrosoftTenant", "MCAHUB_OAUTH_MICROSOFT_TENANT") ?? "common";
+        Add("microsoft", "Microsoft", ProviderKind.Microsoft,
+            $"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize", $"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", "https://graph.microsoft.com/oidc/userinfo", "openid profile email");
+        Add("discord", "Discord", ProviderKind.Discord,
+            "https://discord.com/api/oauth2/authorize", "https://discord.com/api/oauth2/token", "https://discord.com/api/users/@me", "identify email");
+        Add("minecraft", "Minecraft", ProviderKind.Minecraft, // tenant must be 'consumers' for Minecraft (Xbox) sign-in
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize", "https://login.microsoftonline.com/consumers/oauth2/v2.0/token", "", "XboxLive.signin offline_access");
+
         string? master = V("PushToken", "MCAHUB_TOKEN");
         string? hashesRaw = V("TokenSha256", "MCAHUB_TOKEN_SHA256");
         string[] hashes = hashesRaw is { Length: > 0 }
             ? hashesRaw.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : [];
-        return new Config(
-            Accounts: oauth || dev,
-            Oauth: oauth,
-            DevLogin: dev,
-            Provider: V("OAuthProvider", "MCAHUB_OAUTH_PROVIDER") ?? "github",
-            ClientId: clientId,
-            ClientSecret: clientSecret,
-            AuthUrl: V("OAuthAuthUrl", "MCAHUB_OAUTH_AUTH_URL") ?? "https://github.com/login/oauth/authorize",
-            TokenUrl: V("OAuthTokenUrl", "MCAHUB_OAUTH_TOKEN_URL") ?? "https://github.com/login/oauth/access_token",
-            UserUrl: V("OAuthUserUrl", "MCAHUB_OAUTH_USER_URL") ?? "https://api.github.com/user",
-            Scope: V("OAuthScope", "MCAHUB_OAUTH_SCOPE") ?? "read:user",
-            MasterPlaintext: master is { Length: > 0 } ? master : null,
-            MasterHashes: hashes);
+
+        return new Config(Flag("DevLogin", "MCAHUB_DEV_LOGIN"), providers,
+            master is { Length: > 0 } ? master : null, hashes);
     }
+
+    private static string Title(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
     // ---- service wiring ----
 
@@ -95,40 +124,71 @@ public static class Auth
                 };
             });
 
-        if (cfg.Oauth)
-            ab.AddOAuth("oauth", o =>
+        foreach (Provider p in cfg.Providers)
+            ab.AddOAuth(p.Name, o =>
             {
                 o.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                o.ClientId = cfg.ClientId!;
-                o.ClientSecret = cfg.ClientSecret!;
-                o.CallbackPath = "/auth/callback";
-                o.AuthorizationEndpoint = cfg.AuthUrl;
-                o.TokenEndpoint = cfg.TokenUrl;
-                o.UserInformationEndpoint = cfg.UserUrl;
+                o.ClientId = p.ClientId;
+                o.ClientSecret = p.ClientSecret;
+                o.CallbackPath = p.CallbackPath;
+                o.AuthorizationEndpoint = p.AuthUrl;
+                o.TokenEndpoint = p.TokenUrl;
+                if (p.UserUrl.Length > 0) o.UserInformationEndpoint = p.UserUrl;
                 o.UsePkce = true;
-                foreach (string s in cfg.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)) o.Scope.Add(s);
+                foreach (string s in p.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)) o.Scope.Add(s);
                 o.Events.OnCreatingTicket = async ctx =>
                 {
-                    using var req = new HttpRequestMessage(HttpMethod.Get, o.UserInformationEndpoint);
-                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ctx.AccessToken);
-                    req.Headers.UserAgent.ParseAdd("mcadiff-hub");
-                    req.Headers.Accept.ParseAdd("application/json");
-                    using HttpResponseMessage resp = await ctx.Backchannel.SendAsync(req, ctx.HttpContext.RequestAborted);
-                    resp.EnsureSuccessStatusCode();
-                    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ctx.HttpContext.RequestAborted));
-                    JsonElement root = doc.RootElement;
-
-                    string sub = root.TryGetProperty("id", out JsonElement idEl)
-                        ? (idEl.ValueKind == JsonValueKind.Number ? idEl.GetRawText() : idEl.GetString()!)
-                        : root.GetProperty("sub").GetString()!;
-                    string login = Str(root, "login") ?? Str(root, "preferred_username") ?? Str(root, "email") ?? sub;
-                    HubUser u = db.UpsertUser(
-                        $"{cfg.Provider}:{sub}", login,
-                        Str(root, "name") ?? login,
-                        Str(root, "avatar_url") ?? Str(root, "picture") ?? "");
+                    HubUser u = p.Kind == ProviderKind.Minecraft
+                        ? await CreateMinecraftUser(ctx, db)
+                        : await CreateOAuthUser(ctx, p, db);
                     ctx.Identity!.AddClaims(Claims(u));
                 };
             });
+    }
+
+    // ---- provider identity mapping ----
+
+    private static async Task<HubUser> CreateOAuthUser(OAuthCreatingTicketContext ctx, Provider p, HubDb db)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, ctx.Options.UserInformationEndpoint);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ctx.AccessToken);
+        req.Headers.UserAgent.ParseAdd("mcadiff-hub");
+        req.Headers.Accept.ParseAdd("application/json");
+        using HttpResponseMessage resp = await ctx.Backchannel.SendAsync(req, ctx.HttpContext.RequestAborted);
+        resp.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ctx.HttpContext.RequestAborted));
+        (string sub, string login, string name, string avatar) = MapUser(p.Kind, doc.RootElement);
+        return db.UpsertUser($"{p.Name}:{sub}", login, name, avatar);
+    }
+
+    private static async Task<HubUser> CreateMinecraftUser(OAuthCreatingTicketContext ctx, HubDb db)
+    {
+        (string uuid, string username) = await MinecraftAuth.ResolveAsync(ctx.AccessToken!, ctx.Backchannel, ctx.HttpContext.RequestAborted);
+        HubUser u = db.UpsertUser($"minecraft:{uuid}", username, username, "");
+        db.SetMinecraftIdentity(u.Id, uuid, username); // verified Java UUID — the attribution primitive
+        return u;
+    }
+
+    /// <summary>Map a provider's userinfo JSON to (id, login, name, avatar). Pure — unit-tested per kind.</summary>
+    public static (string Sub, string Login, string Name, string Avatar) MapUser(ProviderKind kind, JsonElement root) =>
+        kind == ProviderKind.Discord ? MapDiscord(root) : MapGeneric(root);
+
+    private static (string, string, string, string) MapGeneric(JsonElement root)
+    {
+        string sub = root.TryGetProperty("id", out JsonElement idEl)
+            ? (idEl.ValueKind == JsonValueKind.Number ? idEl.GetRawText() : idEl.GetString()!)
+            : root.GetProperty("sub").GetString()!;
+        string login = Str(root, "login") ?? Str(root, "preferred_username") ?? Str(root, "email") ?? sub;
+        return (sub, login, Str(root, "name") ?? login, Str(root, "avatar_url") ?? Str(root, "picture") ?? "");
+    }
+
+    private static (string, string, string, string) MapDiscord(JsonElement root)
+    {
+        string id = root.GetProperty("id").GetString()!;
+        string username = Str(root, "username") ?? id;
+        string? avatarHash = Str(root, "avatar");
+        string avatar = avatarHash is null ? "" : $"https://cdn.discordapp.com/avatars/{id}/{avatarHash}.png";
+        return (id, username, Str(root, "global_name") ?? username, avatar);
     }
 
     // ---- routes ----
@@ -137,11 +197,27 @@ public static class Auth
     {
         if (!cfg.Accounts) return;
 
-        app.MapGet("/auth/login", (string? returnUrl, HttpContext ctx) =>
+        app.MapGet("/auth/login", (string? provider, string? returnUrl, HttpContext ctx) =>
         {
-            if (cfg.Oauth)
-                return Results.Challenge(new AuthenticationProperties { RedirectUri = Local(returnUrl) }, ["oauth"]);
-            return cfg.DevLogin ? Results.Redirect("/auth/dev") : Results.Redirect("/");
+            var props = new AuthenticationProperties { RedirectUri = Local(returnUrl) };
+
+            // A specific provider was picked → challenge that scheme.
+            if (provider is { Length: > 0 } && cfg.Providers.FirstOrDefault(p => p.Name == provider) is { } chosen)
+                return Results.Challenge(props, [chosen.Name]);
+
+            // Exactly one way in → go straight there; otherwise render the picker.
+            if (cfg.Providers.Count == 1 && !cfg.DevLogin)
+                return Results.Challenge(props, [cfg.Providers[0].Name]);
+            if (cfg.Providers.Count == 0)
+                return cfg.DevLogin ? Results.Redirect("/auth/dev") : Results.Redirect("/");
+
+            string ret = Local(returnUrl);
+            var b = new System.Text.StringBuilder("<h1>Sign in</h1><p class=\"meta\">Choose how you'd like to sign in.</p><div class=\"actions\">");
+            foreach (Provider p in cfg.Providers)
+                b.Append($"""<a class="navlink" href="/auth/login?provider={Html.E(p.Name)}&returnUrl={Html.E(ret)}">Sign in with {Html.E(p.Label)}</a> """);
+            if (cfg.DevLogin) b.Append("""<a class="navlink" href="/auth/dev">Dev sign-in</a>""");
+            b.Append("</div>");
+            return Html.Page("Sign in", b.ToString());
         });
 
         app.MapPost("/auth/logout", async (HttpContext ctx) =>

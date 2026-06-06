@@ -105,12 +105,19 @@ The hub runs in one of three modes, chosen by what you configure:
   direct collaborator, and any team grant. Every state-changing form is **CSRF-protected** with an
   antiforgery token (on top of the `SameSite=Lax` session cookie).
 
+You can enable **several providers at once** — each is on iff its own client id+secret are set, and the
+sign-in page shows a button per enabled provider. Identities are namespaced (`github:…`, `microsoft:…`,
+`minecraft:<uuid>`, `discord:…`) so they never collide. Each first-class provider's callback is
+`https://<host>/auth/callback/<name>` (the legacy generic one keeps `/auth/callback`).
+
 | Accounts env var | Default | Purpose |
 |---|---|---|
-| `MCAHUB_OAUTH_CLIENT_ID` / `MCAHUB_OAUTH_CLIENT_SECRET` | — | Your OAuth app credentials. Setting both turns accounts on. |
-| `MCAHUB_OAUTH_PROVIDER` | `github` | Label namespacing user ids (`github:1234`). |
-| `MCAHUB_OAUTH_AUTH_URL` / `_TOKEN_URL` / `_USER_URL` | GitHub's | Override to use GitLab, Gitea, or any OAuth2 provider. |
-| `MCAHUB_OAUTH_SCOPE` | `read:user` | Scopes requested at sign-in. |
+| `MCAHUB_OAUTH_GITHUB_CLIENT_ID` / `_SECRET` | — | GitHub sign-in. |
+| `MCAHUB_OAUTH_MICROSOFT_CLIENT_ID` / `_SECRET` | — | Microsoft sign-in (work/school/personal). |
+| `MCAHUB_OAUTH_MICROSOFT_TENANT` | `common` | `common` (any) or `consumers` (personal only). |
+| `MCAHUB_OAUTH_MINECRAFT_CLIENT_ID` / `_SECRET` | — | **Minecraft (Java)** sign-in — yields the verified Minecraft UUID + username. The Azure app **must be approved for the Minecraft API** (apply at `aka.ms/mce-reviewappid`) and use the `consumers` tenant, or `api.minecraftservices.com` returns 403. |
+| `MCAHUB_OAUTH_DISCORD_CLIENT_ID` / `_SECRET` | — | Discord sign-in. |
+| `MCAHUB_OAUTH_CLIENT_ID` / `_SECRET` (+ `_PROVIDER` / `_AUTH_URL` / `_TOKEN_URL` / `_USER_URL` / `_SCOPE`) | — | Generic OAuth2 escape hatch (GitLab, Gitea, any OIDC). Kept for back-compat; callback stays `/auth/callback`. |
 | `MCAHUB_DEV_LOGIN` | (off) | ⚠ Insecure local login at `/auth/dev` for evaluating accounts without an OAuth app. **Never on a public host.** |
 | `MCAHUB_ADOPT_UNOWNED` | (off) | Let the first authenticated push to a **pre-existing** unowned world claim it. Off by default so a signed-up user can't take over a legacy world; turn it on only during a supervised migration. |
 | `MCAHUB_DEFAULT_PRIVATE` | `1` (on) | New worlds are **private until you publish them**, so a first push isn't world-readable by surprise. Set `0` for public-by-default on a trusted LAN. (Separately, the world explorer only shows player coordinates/health and sign text to a world's **collaborators**, so a public world doesn't doxx its players.) |
