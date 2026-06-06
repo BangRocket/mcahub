@@ -26,8 +26,9 @@ Don't compare docs to docs — compare each doc to the code:
    `RepoStore.IsValidName`, `SafeInflate`/`NbtDepthGuard`/`PathGuard.Confine` (core side),
    the role ladder, the 404-not-403 rule, the token hashing scheme.
 4. **Commands**: the build/run/render commands in README and CLAUDE.md still work as written
-   (the sibling must be `../mca-git`; CI checkout layout in `.github/workflows/ci.yml` matches
-   what CLAUDE.md says).
+   (the `mca-git` submodule must be initialized at `./mca-git`; CI checkout in
+   `.github/workflows/ci.yml` uses `submodules: recursive` so the layout matches what CLAUDE.md
+   says).
 5. **Status & roadmap**: anything in the README's "Status & roadmap" that has since shipped moves
    from roadmap to shipped.
 

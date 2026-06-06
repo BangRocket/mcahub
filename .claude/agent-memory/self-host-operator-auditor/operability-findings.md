@@ -29,10 +29,10 @@ metadata:
 - No guidance on whether to stop the hub before backing up data/repos (bare git repos mid-push)
 - Fix: add a "Backup and recovery" section to README
 
-### OP-5 CS0246 install failure gives no diagnostic (FRICTION)
-- `dotnet build` without ../mca-git gives 40+ CS0246 errors with no mention of the missing sibling
-- README mentions the requirement in prose but not as a prerequisite callout or clone command
-- Fix: README install section needs a two-command prerequisite block: clone mca-git, then clone hub
+### OP-5 CS0246 install failure gives no diagnostic (FRICTION) — partially mitigated by ADR-0006 submodule
+- Post-ADR-0006: a plain `git clone` (without `--recurse-submodules`) leaves `./mca-git` empty and `dotnet build` still gives ~26 CS0246 errors with no mention of the missing submodule
+- README now leads with `git clone --recurse-submodules` and CLAUDE.md spells out the fix (`git submodule update --init`), which is a real improvement over the pre-ADR-0006 sibling-clone model
+- The hard failure mode is narrower (only operators who skip the README) but the error message is still cryptic — a startup/build-time guard with an actionable message ("./mca-git submodule not initialized; run `git submodule update --init`") would close the gap
 
 ### OP-6 No log rotation; stdout-only logging with no guidance (FRICTION)
 - No appsettings.json exists; ASP.NET Core defaults to console/stdout

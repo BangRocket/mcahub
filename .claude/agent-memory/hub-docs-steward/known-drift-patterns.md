@@ -5,23 +5,26 @@ metadata:
   type: project
 ---
 
-## Findings from 2026-06-05 audit
+## Findings from 2026-06-05 audit (updated after second pass)
 
 **Why:** Comprehensive accuracy audit of README, SECURITY.md, CLAUDE.md against actual source.
 
-### Drift patterns to watch
+### Patterns fixed 2026-06-05
 
-1. **New env vars added to Program.cs without updating docs** — MCAHUB_MAPS was added with MapCache but never landed in README, .env.example, or CLAUDE.md. Check Program.cs lines 21-39 and Auth.cs lines 33-48 every time a storage concern is added.
+1. **MCAHUB_MAPS missing from README** — fixed; "Map cache" row added to README config table.
+2. **README "sibling" default language** — fixed; defaults now read `data/cache`, `data/hub.json`, `data/audit.jsonl` (accurate: derived from parent of dataDir, not from old sibling-repo concept).
+3. **SECURITY.md trust-boundary table missing new endpoints** — fixed; added rows for `/auth/age-gate`, `/account/delete`, `/r/{repo}/delete`, `/admin/repos/{repo}/remove`.
+4. **SECURITY.md item #1 stale — claimed "no rate limiting"** — fixed; updated to describe what IS bounded and what remains unbounded.
+5. **Audit log listed as roadmap** — fixed in README status section; audit log shipped, removed from todo list. Added other recent features (multi-provider sign-in, COPPA gate, AUP, abuse report, GDPR/CCPA erasure, per-user world quota) to the "Shipped" sentence.
+6. **CLAUDE.md line count** — fixed; updated from "~1900 lines" to "~3150 lines across 19 files".
+7. **CLAUDE.md missing new subsystems** — fixed; added AuditLog.cs, AgeGate.cs, AuthThrottle.cs, StartupGuard.cs, ForwardedProxies.cs, MinecraftAuth.cs to architecture section.
 
-2. **Default path descriptions drift** — README says "sibling cache/" (implying repo-sibling) but code and .env.example both say data/cache. The word "sibling" in README refers to the sibling mcadiff repo checkout concept, creating false-cognate confusion when applied to data directories.
+### Remaining known drift (not fixed — intentional or out-of-scope)
 
-3. **SECURITY.md trust-boundary table omits web-only action endpoints** — team management routes (/teams, /teams/{name}/*) and account mutation routes (/account/tokens, /account/tokens/revoke) are fully CSRF-protected state-changing POSTs but have no row in the trust boundary table.
-
-4. **Token format: SECURITY.md says "30 random bytes" stored SHA-256** — actually the secret is "mcahub_" + base64url(30 random bytes), stored as SHA-256 of that full string. The description is correct in spirit but the actual secret prefix and base64url encoding are not mentioned.
-
-5. **Auth mode log string** — README says log reads "auth: accounts (github OAuth)" but actual code emits "mcadiff-hub serving worlds from {DataDir} · auth: accounts (github OAuth)". Low severity, but the exact log string in the quickstart is slightly wrong.
-
-6. **CLAUDE.md env list** — MCAHUB_BEHIND_PROXY is in the CLAUDE.md narrative but not in the parenthetical env var list on line 33-34.
+- SECURITY.md trust-boundary table still omits team management and individual account token routes — these are routine CSRF-protected POSTs covered by the "Web — actions" catch-all row. Only endpoints with unusual gate logic warrant their own row.
+- Token format: SECURITY.md "30 random bytes" is spirit-correct; the `mcahub_` prefix and base64url encoding are implementation detail, not a doc claim that would mislead a reviewer.
+- Auth mode log string: README quickstart says log reads `auth: accounts (github OAuth)` but actual log includes the dataDir prefix. Low severity; a reader checking the log will still recognize the auth mode string.
+- CLAUDE.md inline env list defers to README deliberately — do not expand it to full table.
 
 ### How to apply
-When any of these file categories change — Program.cs, Auth.cs, Pages.cs (new routes), HubDb.cs (new token format) — cross-check all three docs before closing the PR. The env var table is the highest-drift surface.
+When any of these file categories change — Program.cs (env vars / limits), Auth.cs (new predicates), Pages.cs (new routes), HubDb.cs (new flags/methods) — cross-check all three docs before closing the PR. The env var table and the SECURITY.md "Where I'd look" section are the highest-drift surfaces. New routes with unusual gate logic (not just standard CSRF+capability) need a row in the trust-boundary table.

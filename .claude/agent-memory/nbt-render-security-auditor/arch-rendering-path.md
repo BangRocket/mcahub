@@ -14,7 +14,7 @@ metadata:
 - `src/McadiffHub/Pages.cs:386` — `Map()` handler for `/r/{repo}/map/{reff}.png`
 - `src/McadiffHub/Transport.cs` — write endpoint; no size/rate limiting on push
 
-### File Locations (core, sibling checkout at ../mca-git)
+### File Locations (core, submodule at ./mca-git per ADR-0006)
 - `src/McaDiff/Diff/BlockStateDecoder.cs` — palette decode, packed long-array decode
 - `src/McaDiff/Anvil/RegionFile.cs` — Anvil region parser (header + chunk payloads)
 - `src/McaDiff/Anvil/ChunkCodec.cs` — decompression via InflateBounded (128 MiB cap per chunk)

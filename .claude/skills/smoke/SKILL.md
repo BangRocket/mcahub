@@ -11,19 +11,19 @@ pass/fail table at the end. Total runtime is a couple of minutes (the cold map r
 
 ## Prerequisites
 
-- The mcadiff core checked out at `../mca-git` (on this machine it's a junction to `../mcadiff`).
-  If missing, stop and say so — nothing builds without it.
-- The real sample world `../mca-git/compare-worlds/New_World_Older` (1.21.1, ~2,600 chunks).
+- The `mca-git` submodule initialized at `<repo>/mca-git`. If empty, stop and say so
+  (`git submodule update --init` fixes it) — nothing builds without it.
+- The real sample world `<repo>/mca-git/compare-worlds/New_World_Older` (1.21.1, ~2,600 chunks).
 
 ## Setup — isolation matters
 
 1. Create a scratch dir (e.g. `$env:TEMP/hub-smoke-<random>`). Everything lives under it:
    `data/`, `cache/`, `maps/`, `hub.json`, the CLI repo, and both published binaries.
-2. **Publish, don't `dotnet run`.** Publish once each — the hub (`dotnet publish src/McadiffHub
-   -c Release -o <scratch>/hub-bin`) and the core CLI (`dotnet publish ../mca-git/src/McaDiff
-   -c Release -o <scratch>/cli-bin`). The CLI gets invoked repeatedly; `dotnet run` pays MSBuild
-   evaluation every time and its working-directory behavior has already caused one phantom
-   0-chunk bug here.
+2. **Publish, don't `dotnet run`.** Publish once each from the repo root — the hub
+   (`dotnet publish src/McadiffHub -c Release -o <scratch>/hub-bin`) and the core CLI
+   (`dotnet publish mca-git/src/McaDiff -c Release -o <scratch>/cli-bin`). The CLI gets invoked
+   repeatedly; `dotnet run` pays MSBuild evaluation every time and its working-directory
+   behavior has already caused one phantom 0-chunk bug here.
 3. **Launch the hub from inside the scratch dir** (run_in_background), with:
    - `ASPNETCORE_URLS=http://localhost:5099` — never 5080, a dev instance may be running.
    - `MCAHUB_DATA=<scratch>/data/repos`, `MCAHUB_CACHE`, `MCAHUB_MAPS`, `MCAHUB_DB` likewise.
@@ -37,7 +37,7 @@ pass/fail table at the end. Total runtime is a couple of minutes (the cold map r
 
 Use the published CLI (`<scratch>/cli-bin/mcadiff`) and curl/Invoke-WebRequest. Assert each step:
 
-1. **init + commit**: `mcadiff init <scratch>/smoke.mcagit --worktree ../mca-git/compare-worlds/New_World_Older`,
+1. **init + commit**: `mcadiff init <scratch>/smoke.mcagit --worktree <repo>/mca-git/compare-worlds/New_World_Older`,
    set `config user.name` / `user.email`, `commit -m "smoke backup"` — exit 0 each.
 2. **push auto-creates**: `mcadiff -C <scratch>/smoke.mcagit push http://localhost:5099/r/smoke main`
    — exit 0. This exercises the whole transport write path (`info/refs`, `have`, `objects`, `pack`,

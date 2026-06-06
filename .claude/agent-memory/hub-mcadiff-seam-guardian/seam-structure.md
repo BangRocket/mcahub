@@ -39,7 +39,7 @@ All routes live in `src/McadiffHub/Transport.cs`. Each request constructs a per-
 
 5. **MEDIUM — branch name reaches PathGuard only via core** (`Transport.cs:60-65`): The `{branch}` route parameter is passed directly to `s.UpdateRef(branch, ...)`, which calls `repo.WriteBranch(branch, ...)`, which calls `BranchPath(branch)`, which calls `PathGuard.Confine`. The hub does not validate `branch` before passing it. This is correct delegation (the core guards it), but any change to hub routing that extracts or uses `{branch}` before calling the core would miss the guard. The hub also never validates `{hash}` — `ObjectStore.IsValidHash` is the sole guard, called inside `PathFor()`.
 
-6. **MEDIUM — sibling coupling floats to core main** (`McadiffHub.csproj:15`, `ci.yml:88-90`): `ProjectReference` to `../../../mca-git/src/McaDiff/McaDiff.csproj`; CI checks out `BangRocket/mcadiff@main` with no ref pin. A breaking core API change silently breaks hub builds at next CI run. Supply-chain: CI executes code from the core's main branch — currently acceptable (same owner, read-only token), but no explicit pin strategy exists.
+6. **LOW — submodule coupling pins core via gitlink** (`McadiffHub.csproj:15`, `.gitmodules`, ADR-0006): `ProjectReference` to `../../mca-git/src/McaDiff/McaDiff.csproj`; core is vendored as a git submodule at `./mca-git`, gitlink-pinned. CI uses `submodules: recursive`. Core API changes only land via an explicit `git submodule update --remote mca-git` + commit — visible as a one-line gitlink change in PR diffs. No silent core drift; supply-chain narrowed to deliberate bumps. Risk shifted: a submodule bump that lands a breaking core change is now a reviewable PR-time event, not a CI surprise.
 
 7. **LOW — actionlint installer fetched at runtime** (`ci.yml:65`): `bash <(curl ...)` fetches the install script from GitHub at a commit SHA of the script file, then installs a hardcoded version `1.7.12`. The script SHA is pinned but the binary it downloads is not — it fetches from GitHub releases, not a fixed digest. Not a code-execution risk in practice (GitHub releases are content-addressed by version), but inconsistent with the SHA-pinning discipline elsewhere.
 
@@ -47,8 +47,15 @@ All routes live in `src/McadiffHub/Transport.cs`. Each request constructs a per-
 
 9. **INFO — 404 vs 403 discipline on read routes** (`Transport.cs:32-35, 42`): `Readable()` returning false yields `Results.NotFound()` on all read routes, which correctly hides repo existence from unauthenticated callers. Verified correct.
 
-## Sibling coupling verdict
+## Submodule coupling verdict
 
-The `ProjectReference` floating to core main is a deliberate signal-capture strategy (breaks here rather than at local build). It is acceptable while both repos share an owner. The risk is: a core API change (renamed method, changed signature) will break hub CI immediately and visibly — which is the intended behavior. There is no stealth version-skew because the coupling is compile-time. Supply-chain risk is limited to the read-only CI token and same-owner trust.
+The core is a git submodule at `./mca-git` (see [ADR-0006](../../../docs/adr/0006-mcadiff-submodule.md),
+superseding [ADR-0003](../../../docs/adr/0003-sibling-mcadiff-core-coupling.md)). The gitlink in the
+parent repo's tree pins the exact commit; local and CI builds resolve against the same SHA by
+construction. Core API changes land at the hub's pace, via an explicit `git submodule update --remote
+mca-git` + commit, shown as a one-line gitlink change in PR diffs. Compile-time coupling is preserved
+(a core breakage at bump time is loud), but stealth drift is eliminated. Supply-chain risk further
+narrowed: CI no longer fetches the core's `main` at run time.
 
-Pin strategy if owner trust changes: add `ref: <sha>` to the `mca-git` checkout step. This trades break-signal for supply-chain isolation. A middle ground: pin to a tag (`ref: v1.2.3`) and use Dependabot's `nuget` ecosystem (NuGet package instead of ProjectReference) to get automated bumps with code review.
+End-state per ADR-0003 / ADR-0006: publish the core as a versioned NuGet and replace the submodule
+with a `PackageReference` once the core API stabilizes. Until then, the submodule is the bridge.

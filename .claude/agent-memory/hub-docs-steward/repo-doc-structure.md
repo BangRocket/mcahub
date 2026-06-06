@@ -26,7 +26,7 @@ metadata:
 
 ## CLAUDE.md
 
-- **Hard dependency** — lines 12-21: sibling checkout requirement
+- **Hard dependency** — lines 11-21: submodule requirement (was sibling checkout pre-ADR-0006)
 - **Commands** — lines 23-36: build/run/render + env var enumeration
 - **Architecture** — lines 38-73: per-file subsystem notes
 - **Security invariants** — lines 75-87: 6 bullet invariants
