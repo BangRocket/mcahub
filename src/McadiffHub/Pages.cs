@@ -453,7 +453,8 @@ public static class Pages
         RenderGrief(b, g);
         b.Append("<h2>Changes</h2>");
         if (!diff.HasDifferences) b.Append("""<p class="empty">No changes from the previous backup.</p>""");
-        RenderDiff(b, diff);
+        bool canSeeData = Auth.CanSeePlayerData(cfg, db, name, Auth.Current(ctx)?.Id, admin: false); // #34
+        RenderDiff(b, diff, canSeeData);
         return Page($"Backup {commit[..10]}", b.ToString(), chip);
     }
 
@@ -478,7 +479,8 @@ public static class Pages
         RenderGrief(sb, GriefReport.Analyze(diff));
         sb.Append("<h2>Changes</h2>");
         if (!diff.HasDifferences) sb.Append("""<p class="empty">No differences between these backups.</p>""");
-        RenderDiff(sb, diff);
+        bool canSeeData = Auth.CanSeePlayerData(cfg, db, name, Auth.Current(ctx)?.Id, admin: false); // #34
+        RenderDiff(sb, diff, canSeeData);
         return Page($"Compare {ca[..10]}…{cb[..10]}", sb.ToString(), chip);
     }
 
@@ -791,16 +793,34 @@ public static class Pages
 
     private const int MaxFiles = 200, MaxChunks = 80, MaxChanges = 60;
 
-    private static void RenderDiff(StringBuilder b, WorldDiff diff)
+    private static void RenderDiff(StringBuilder b, WorldDiff diff, bool canSeeData)
     {
         foreach (FileDiff f in diff.Files.Take(MaxFiles))
         {
             b.Append($"""<div class="file"><div class="fh"><span class="st st-{f.Status.ToString().ToLowerInvariant()}">{f.Status}</span> {E(f.RelativePath)}{(f.ItemCount is { } n ? $" <span class=\"meta\">({n} chunks)</span>" : "")}</div>""");
             if (f.Error is { } err) b.Append($"""<div class="err">{E(err)}</div>""");
+
+            // #34: player data (positions, inventory, sign text) is doxxing material, hidden from non-collaborators
+            // on a public world — same gate the world explorer uses. A whole player-data file (level.dat, playerdata/,
+            // entities/) is suppressed; container/sign (block-entity) and entity changes inside region files are
+            // dropped per-row. Block/biome changes and the grief summary stay public (that's the headline feature).
+            if (!canSeeData && SensitiveFile(f.RelativePath))
+            {
+                int total = f.Chunks.Sum(ch => ch.Changes.Count) + f.Changes.Count;
+                b.Append($"""<div class="more">{total} player-data change(s) hidden — visible only to this world's collaborators</div></div>""");
+                continue;
+            }
+
             foreach (ChunkDiff ch in f.Chunks.Take(MaxChunks))
             {
                 b.Append($"""<div class="chunk">chunk ({ch.Pos.X}, {ch.Pos.Z})</div><ul class="changes">""");
-                foreach (NbtChange c in ch.Changes.Take(MaxChanges)) b.Append(Change(c));
+                int hidden = 0;
+                foreach (NbtChange c in ch.Changes.Take(MaxChanges))
+                {
+                    if (!canSeeData && SensitivePath(c.Path)) { hidden++; continue; }
+                    b.Append(Change(c));
+                }
+                if (hidden > 0) b.Append($"<li class=\"more\">… {hidden} container/sign/entity change(s) hidden</li>");
                 if (ch.Changes.Count > MaxChanges) b.Append($"<li class=\"more\">… {ch.Changes.Count - MaxChanges} more</li>");
                 b.Append("</ul>");
             }
@@ -808,7 +828,13 @@ public static class Pages
             if (f.Changes.Count > 0)
             {
                 b.Append("<ul class=\"changes\">");
-                foreach (NbtChange c in f.Changes.Take(MaxChanges)) b.Append(Change(c));
+                int hidden = 0;
+                foreach (NbtChange c in f.Changes.Take(MaxChanges))
+                {
+                    if (!canSeeData && SensitivePath(c.Path)) { hidden++; continue; }
+                    b.Append(Change(c));
+                }
+                if (hidden > 0) b.Append($"<li class=\"more\">… {hidden} container/sign/entity change(s) hidden</li>");
                 if (f.Changes.Count > MaxChanges) b.Append($"<li class=\"more\">… {f.Changes.Count - MaxChanges} more</li>");
                 b.Append("</ul>");
             }
@@ -816,6 +842,18 @@ public static class Pages
         }
         if (diff.Files.Count > MaxFiles) b.Append($"<div class=\"more\">… {diff.Files.Count - MaxFiles} more files</div>");
     }
+
+    // #34 redaction: which diff entries carry player PII (positions / inventory / sign text). internal for tests.
+    internal static bool SensitiveFile(string rel) =>
+        rel is "level.dat" or "level.dat_old"
+        || rel.StartsWith("playerdata/", StringComparison.OrdinalIgnoreCase)
+        || rel.StartsWith("playerdata\\", StringComparison.OrdinalIgnoreCase)
+        || rel.StartsWith("entities/", StringComparison.OrdinalIgnoreCase)
+        || rel.StartsWith("entities\\", StringComparison.OrdinalIgnoreCase);
+
+    // Catches block_entities (chests = inventory, signs = text) and chunk-level Entities (positions / names).
+    // No public block_states/biome/section path contains "entit", so grief block changes are never redacted.
+    internal static bool SensitivePath(string path) => path.Contains("entit", StringComparison.OrdinalIgnoreCase);
 
     private static string Change(NbtChange c)
     {

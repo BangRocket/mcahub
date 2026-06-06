@@ -15,4 +15,8 @@
     <ProjectReference Include="..\..\mca-git\src\McaDiff\McaDiff.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="McadiffHub.Tests" />
+  </ItemGroup>
+
 </Project>
