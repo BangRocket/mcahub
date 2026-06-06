@@ -86,6 +86,13 @@ error rather than silently filling the disk. Rate limits are **per client IP** a
 `Retry-After`; behind a reverse proxy, set `MCAHUB_BEHIND_PROXY=1` so the real client IP is used (else
 every client shares one bucket).
 
+**Operating.** `GET /health` returns `200 {"status":"ok",…}` for proxy/orchestrator liveness probes — it's
+unauthenticated and rate-limit-exempt, so **don't block it at the proxy**. If the disk fills, a write to
+the account database fails with **`507 Insufficient Storage`** (the in-memory state isn't advanced, so
+nothing is silently lost) instead of a 500. `hub.json` carries a schema version: a file written by a
+**newer** hub makes this one **refuse to start** with an actionable message rather than misread and
+overwrite it — back it up and upgrade.
+
 ### Auth modes
 
 The hub runs in one of three modes, chosen by what you configure:
