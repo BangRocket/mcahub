@@ -56,9 +56,13 @@ framework — even the PNG encoder is hand-rolled). `Program.cs` wires everythin
   identity (Bearer PAT). Holds the access predicates `CanRead`/`CanWrite`/`CanManageSettings`/
   `CanManagePeople` and the CSRF helpers (`CsrfField`/`CsrfOk` — validated manually so Bearer-only
   transport POSTs are exempt) and the open-redirect guard `Local`.
-- **`HubDb.cs`** — the account store: a single JSON file (`hub.json`) guarded by a process-wide lock
-  with atomic tmp+rename writes. Users, **SHA-256-hashed** PATs (`mcahub_` prefix, plaintext shown
-  once), repo owner/visibility, collaborators, teams. **`RoleOf` is the single source of truth for
+- **`HubDb.cs`** — the account store: a single JSON file (`hub.json`). **Multi-instance safe (#41):** every
+  write goes through `Mutate` — take a **cross-process advisory file lock** (`hub.json.lock`), reload the
+  store from disk, apply, publish atomically (tmp+rename) — so two instances behind a proxy can share it
+  (zero-downtime rolling deploys) without clobbering each other; reads go through `Query` (reload-if-changed),
+  so a revoked token / changed grant on one instance is seen by the other on its next read. Users,
+  **SHA-256-hashed** PATs (`mcahub_` prefix, plaintext shown once), repo owner/visibility, collaborators,
+  teams. **`RoleOf` is the single source of truth for
   authorization** — it folds owner > admin > maintain > write > read across owner, direct
   collaborator grants, and team grants; transport, pages, and UI rendering all route through it so
   they can't drift. Keep it that way: never add an ad-hoc permission check.
@@ -70,6 +74,11 @@ framework — even the PNG encoder is hand-rolled). `Program.cs` wires everythin
   once, a map rendered to PNG once. `MapRenderer` scans 1.18+ `sections`/`block_states` top-down for
   the first non-air block, colors + height-shades it, and writes the PNG itself (`ZLibStream` + a
   CRC32). Render span is capped at 160×160 chunks.
+- **`RenderQueue.cs`** — a hosted `BackgroundService` that runs cold map renders (which also materialize
+  the world) off the request thread (#41): the map endpoint enqueues + awaits, but the render runs under
+  the app lifetime, so a client disconnect/timeout no longer aborts it — it finishes and fills the cache.
+  Same-map requests coalesce onto one job; a durable marker per job (re-enqueued on startup) makes a
+  crash/deploy-interrupted render resumable. Cache probe + render are injected, so it's decoupled + tested.
 - **`AuditLog.cs`** — append-only JSONL trail of role/visibility/ownership/ref/token changes; surfaced
   at `/r/<name>/audit` (owners/admins only).
 - **`AgeGate.cs`** — COPPA-style gate: when `MCAHUB_MIN_AGE_GATE=1`, any signed-in user who hasn't

@@ -130,12 +130,19 @@ nothing is silently lost) instead of a 500. `hub.json` carries a schema version:
 overwrite it — back it up and upgrade.
 
 On **SIGTERM** (a deploy, `docker stop`, systemd) the hub **drains** — it stops accepting new connections
-and lets in-flight requests finish (up to the render deadline) instead of guillotining a render. Map
-renders and world materializations are **idempotent and resumable**: both caches are keyed by the
-immutable backup commit, so a killed render just re-runs on the next view and the cache fills. **Two
-instances may share one data directory** (e.g. for a zero-downtime rolling deploy): the account store
-takes a cross-process file lock and reloads before each write, so neither instance clobbers the other's
-changes, and a revoked token / changed grant on one is seen by the other on its next read.
+and lets in-flight requests finish (up to the render deadline) instead of guillotining a render. Cold map
+renders (which also materialize the backup's world) run as **background jobs** on a hosted worker pool, not
+on the request thread: a client that disconnects or times out no longer aborts the render — it finishes and
+fills the immutable, commit-keyed cache for the next viewer. Each pending job has a **durable marker** that
+is re-enqueued on startup, so a render interrupted by a crash or deploy **resumes** rather than waiting to be
+re-triggered (and a resumed job that already completed simply hits the warm cache).
+
+Two instances may **share one data directory** for zero-downtime rolling deploys: every account-store write
+takes a **cross-process advisory lock** (`hub.json.lock`) and reloads `hub.json` before mutating, then
+publishes atomically — so a concurrent writer can never tear or clobber the store, and neither instance
+overwrites the other's committed change. Reads reload when the file changed underneath them, so a revoked
+token or changed grant on one instance is seen by the other on its next read. A sustained two-writer workload
+still wants vertical scaling (or a future real DB).
 
 ### Auth modes
 
