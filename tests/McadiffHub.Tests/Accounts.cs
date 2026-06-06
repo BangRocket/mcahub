@@ -71,6 +71,13 @@ internal static class Accounts
         await signedIn.PostAsync("/account/delete", Form(("__RequestVerificationToken", csrf)));
     }
 
+    /// <summary>Acknowledge the age gate for the signed-in user.</summary>
+    public static async Task ConfirmAgeAsync(HttpClient signedIn)
+    {
+        string csrf = Csrf(await GetStringAsync(signedIn, "/auth/age-gate"));
+        await signedIn.PostAsync("/auth/age-gate", Form(("__RequestVerificationToken", csrf)));
+    }
+
     /// <summary>Create + claim a repo as the token's owner. The first authenticated write to a new name
     /// auto-creates and claims it (the dummy object is rejected, but ownership is established first).</summary>
     public static async Task CreateRepoAsync(HubFactory f, string ownerToken, string repo)

@@ -122,6 +122,7 @@ sign-in page shows a button per enabled provider. Identities are namespaced (`gi
 | `MCAHUB_ADOPT_UNOWNED` | (off) | Let the first authenticated push to a **pre-existing** unowned world claim it. Off by default so a signed-up user can't take over a legacy world; turn it on only during a supervised migration. |
 | `MCAHUB_DEFAULT_PRIVATE` | `1` (on) | New worlds are **private until you publish them**, so a first push isn't world-readable by surprise. Set `0` for public-by-default on a trusted LAN. (Separately, the world explorer only shows player coordinates/health and sign text to a world's **collaborators**, so a public world doesn't doxx its players.) |
 | `MCAHUB_REPORT_EMAIL` | — | Abuse-report address. When set, non-owners see a **"Report this world"** link on each world's page. The operator can take a world down with the master token: `curl -X POST -H "Authorization: Bearer <MCAHUB_TOKEN>" https://<host>/admin/repos/<name>/remove`. (A user can also be suspended — a non-destructive lockout from read/write.) |
+| `MCAHUB_MIN_AGE_GATE` | (off) | Require a **13+/parental-consent** confirmation on first sign-in before any page works (logged). Off by default for school/LAN self-hosts; **turn it on for a public launch** (Minecraft skews young). |
 
 A user can **delete their account** (and all worlds they own) from `/account`, and an owner can **delete a world** from its page — GDPR/CCPA erasure, both with a typed confirmation.
 
