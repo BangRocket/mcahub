@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/McadiffHub/McadiffHub.csproj" />
+    <Project Path="src/Sidecar/McadiffHub.Sidecar.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/McadiffHub.Tests/McadiffHub.Tests.csproj" />
