@@ -64,6 +64,14 @@ public sealed class DiskCacheQuota(long maxBytes, int maxPerRepo, Action<string>
         lock (_lock) EvictGlobal();
     }
 
+    /// <summary>Forget all index entries for a repo (its files are deleted separately, e.g. on world delete).</summary>
+    public void Forget(string repo)
+    {
+        lock (_lock)
+            foreach (Entry e in _byKey.Values.Where(e => e.Repo == repo).ToList())
+                if (_byKey.Remove(e.Key)) _total -= e.Size;
+    }
+
     private void EvictPerRepo(string repo)
     {
         List<Entry> repoEntries = _byKey.Values.Where(e => e.Repo == repo).OrderByDescending(e => e.Access).ToList();

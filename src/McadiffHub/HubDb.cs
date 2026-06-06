@@ -56,6 +56,47 @@ public sealed class HubDb
         }
     }
 
+    /// <summary>Erase a user (GDPR/CCPA): their identity, tokens, collaborator grants, team memberships,
+    /// and owned teams + the metadata of repos they own. Returns the names of the repos they owned so the
+    /// caller can delete them from disk (and their caches).</summary>
+    public IReadOnlyList<string> DeleteUser(string userId)
+    {
+        lock (_lock)
+        {
+            List<string> owned = _db.Repos.Where(r => r.OwnerId == userId).Select(r => r.Name).ToList();
+            foreach (string name in owned)
+            {
+                _db.Repos.RemoveAll(r => r.Name == name);
+                _db.Collabs.RemoveAll(c => c.Repo == name);
+                _db.TeamGrants.RemoveAll(g => g.Repo == name);
+            }
+            _db.Collabs.RemoveAll(c => c.UserId == userId);                 // their grants on others' repos
+            foreach (string team in _db.Teams.Where(t => t.OwnerId == userId).Select(t => t.Name).ToList())
+            {
+                _db.Teams.RemoveAll(t => t.Name == team);                   // teams they own
+                _db.TeamGrants.RemoveAll(g => g.TeamName == team);
+            }
+            foreach (Team t in _db.Teams) t.Members.Remove(userId);          // memberships in others' teams
+            foreach (TokenRecord tok in _db.Tokens.Where(t => t.UserId == userId).ToList()) _byHash.Remove(tok.Hash);
+            _db.Tokens.RemoveAll(t => t.UserId == userId);
+            _db.Users.RemoveAll(u => u.Id == userId);
+            Save();
+            return owned;
+        }
+    }
+
+    /// <summary>Forget a repo's metadata + all its grants (the on-disk repo is deleted separately).</summary>
+    public void DeleteRepo(string name)
+    {
+        lock (_lock)
+        {
+            bool changed = _db.Repos.RemoveAll(r => r.Name == name) > 0;
+            changed |= _db.Collabs.RemoveAll(c => c.Repo == name) > 0;
+            changed |= _db.TeamGrants.RemoveAll(g => g.Repo == name) > 0;
+            if (changed) Save();
+        }
+    }
+
     public HubUser? GetUser(string? id)
     {
         if (id is null) return null;
