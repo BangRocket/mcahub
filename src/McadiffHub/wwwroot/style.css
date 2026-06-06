@@ -151,3 +151,18 @@ form.revoke button:hover, form.settings button:hover { border-color: var(--red);
 /* Timeline map thumbnails (#27) */
 ol.timeline li a.thumb { display: inline-block; margin-right: 8px; vertical-align: middle; flex: 0 0 auto; }
 ol.timeline li a.thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: #1a1a1a; display: block; }
+
+/* Accessibility (#28) */
+.skip { position: absolute; left: -9999px; top: 0; background: var(--green); color: #000; padding: 8px 12px; z-index: 10; }
+.skip:focus { left: 8px; top: 8px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--green); outline-offset: 2px;
+}
+
+/* Mobile (#28): the diff tables scroll instead of overflowing, the before/after maps stack, tighter padding */
+@media (max-width: 600px) {
+  main, footer { padding: 16px; }
+  .maps { flex-direction: column; }
+  table { display: block; overflow-x: auto; max-width: 100%; }
+  ol.timeline li { flex-wrap: wrap; }
+}
