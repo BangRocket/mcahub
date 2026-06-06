@@ -8,8 +8,19 @@ public static class Html
     /// <summary>HTML-escape untrusted text (repo names, commit messages, block ids).</summary>
     public static string E(string? s) => WebUtility.HtmlEncode(s ?? "");
 
-    public static IResult Page(string title, string body, string headerRight = "") =>
-        Results.Content(Layout(title, body, headerRight), "text/html; charset=utf-8");
+    public static IResult Page(string title, string body, string headerRight = "", string headExtra = "") =>
+        Results.Content(Layout(title, body, headerRight, headExtra), "text/html; charset=utf-8");
+
+    /// <summary>OpenGraph + Twitter-card meta so a pasted world link unfurls into the map (#25). All values
+    /// are HTML-escaped; <paramref name="image"/> should be an absolute URL.</summary>
+    public static string OgTags(string title, string description, string image) => $"""
+        <meta property="og:title" content="{E(title)}">
+        <meta property="og:description" content="{E(description)}">
+        <meta property="og:image" content="{E(image)}">
+        <meta property="og:type" content="website">
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:image" content="{E(image)}">
+        """;
 
     public static IResult NotFound(string what, string headerRight = "")
     {
@@ -22,7 +33,7 @@ public static class Html
         return Results.Content(Layout("Not found", body, headerRight), "text/html; charset=utf-8", statusCode: 404);
     }
 
-    private static string Layout(string title, string body, string headerRight) => $$"""
+    private static string Layout(string title, string body, string headerRight, string headExtra = "") => $$"""
         <!doctype html>
         <html lang="en">
         <head>
@@ -30,6 +41,7 @@ public static class Html
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>{{E(title)}} · mcadiff-hub</title>
           <link rel="stylesheet" href="/style.css">
+        {{headExtra}}
         </head>
         <body>
           <a class="skip" href="#main">Skip to content</a>

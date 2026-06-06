@@ -19,6 +19,7 @@ public static class Pages
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/aup", (HttpContext ctx) => Aup(ctx, cfg, reportEmail));
+        app.MapGet("/r/{repo}/embed", (string repo, HttpContext ctx) => Embed(ctx, store, db, cfg, repo)); // iframe-able map (#25)
         app.MapGet("/upload", (HttpContext ctx) => UploadPage(ctx, cfg));     // drag-drop a world, no CLI (#26)
         // Block body (not `=> await …`): an expression-bodied async lambda binds as a raw RequestDelegate
         // and its IResult is discarded. A block body binds as the rich handler that executes the result.
@@ -385,6 +386,25 @@ public static class Pages
         return Page(name, b.ToString(), chip);
     }
 
+    /// <summary>A chrome-less, iframe-embeddable map of a world's latest backup (#25). Read-only (no
+    /// controls/forms), so relaxing the frame headers for cross-site embedding is clickjacking-safe; a
+    /// private world still 404s to a non-viewer.</summary>
+    private static IResult Embed(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
+    {
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return Results.NotFound();
+        if (store.Open(name).HeadCommit() is not { } head) return Results.NotFound();
+        ctx.Response.Headers.Remove("X-Frame-Options"); // allow framing (set globally by the security-headers middleware)
+        ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https:; style-src 'self'; frame-ancestors *";
+        string url = $"{ctx.Request.Scheme}://{ctx.Request.Host}/r/{E(name)}";
+        string html = $$"""
+            <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{{E(name)}} · mcadiff-hub</title><link rel="stylesheet" href="/style.css"></head>
+            <body class="embed"><a href="{{url}}" target="_blank" rel="noopener"><img src="/r/{{E(name)}}/map/{{head}}.png" alt="map of {{E(name)}}" style="max-width:100%;display:block"></a>
+            <p class="meta" style="padding:6px;margin:0"><a href="{{url}}" target="_blank" rel="noopener">{{E(name)}} on mcadiff-hub</a></p></body></html>
+            """;
+        return Results.Content(html, "text/html; charset=utf-8");
+    }
+
     // ---- drag-and-drop upload (#26): stateless — extract, render, discard. No persistence, no token. ----
 
     private const long UploadMaxUncompressed = 512L * 1024 * 1024; // 512 MiB extracted (zip-bomb ceiling)
@@ -594,7 +614,13 @@ public static class Pages
         if (!diff.HasDifferences) b.Append("""<p class="empty">No changes from the previous backup.</p>""");
         bool canSeeData = Auth.CanSeePlayerData(cfg, db, name, Auth.Current(ctx)?.Id, admin: false); // #34
         RenderDiff(b, diff, canSeeData);
-        return Page($"Backup {commit[..10]}", b.ToString(), chip);
+        // OpenGraph unfurl (#25): the map as the card image. A private world's map endpoint 404s to a
+        // crawler (CanSee), so this never leaks a private image — it only unfurls for those who can see it.
+        string desc = g.Destroyed + g.Built + g.Replaced > 0
+            ? $"{g.Destroyed:N0} destroyed · {g.Built:N0} placed · {g.Replaced:N0} replaced"
+            : Oneline(c.Message);
+        string og = OgTags($"{name} · backup {commit[..10]}", desc, $"{ctx.Request.Scheme}://{ctx.Request.Host}/r/{E(name)}/map/{commit}.png");
+        return Page($"Backup {commit[..10]}", b.ToString(), chip, og);
     }
 
     private static IResult Compare(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string a, string bRef)
