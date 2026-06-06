@@ -1,0 +1,22 @@
+<Project>
+  <!--
+    CI-gated strict-warnings posture (#40): in CI, treat warnings as errors so a merge can't introduce a
+    new one; locally the inner dev loop stays fast and non-strict. GitHub Actions sets CI=true for us.
+
+    Scoped to THIS repo's projects only — never the vendored mcadiff core (the `mca-git` submodule lives
+    *inside* the repo, so MSBuild would otherwise inherit these props into it; we don't control its warnings).
+
+    Note: AnalysisMode is left at the default recommended set, not AllEnabledByDefault — turning the full
+    analyzer set on surfaces ~1500 pre-existing findings that warrant their own cleanup pass (tracked
+    separately), and a NoWarn list that large wouldn't be meaningfully "justified inline".
+  -->
+  <PropertyGroup Condition="'$(CI)' == 'true' and '$(MSBuildProjectName)' != 'McaDiff'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+  </PropertyGroup>
+
+  <!--
+    Justified suppressions (keep this list short; revisit on every SDK/analyzer bump):
+    <NoWarn>$(NoWarn);XXNNNN</NoWarn> when adding one, with a one-line reason.
+  -->
+</Project>
