@@ -24,7 +24,11 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
 | **Network — write** | `POST /r/{repo}/objects\|pack\|refs` | pack bytes, RefUpdate JSON, token | `Transport.Write` → Bearer auth + `Auth.CanWrite`; FF-check & pack hash verify happen in the core |
 | **World data** | push → `ObjectStore` → `Checkout.Materialize` → `MapRenderer`/`WorldQuery` | compressed chunk NBT, manifests, file paths | core `SafeInflate` / `NbtDepthGuard` / `PathGuard.Confine`; `BlockStateDecoder` bounds |
 | **Web — session** | OAuth `/auth/*`, cookie | OAuth callback, `returnUrl` | framework cookie+OAuth (PKCE+state); `Auth.Local` open-redirect guard |
+| **Web — age gate** | `POST /auth/age-gate` | age-confirmation form | antiforgery token; bounces un-confirmed users off all pages when `MCAHUB_MIN_AGE_GATE=1`; ack written to `hub.json` |
 | **Web — actions** | state-changing `POST`s | form fields | **antiforgery token** (`Auth.CsrfOk`) + `SameSite=Lax` + capability checks |
+| **Erasure — user** | `POST /account/delete` | typed confirmation | antiforgery token; must be the current user; `HubDb.DeleteUser` erases identity, tokens, grants, owned teams + world metadata; on-disk repos/caches purged |
+| **Erasure — world** | `POST /r/{repo}/delete` | typed confirmation, repo name | antiforgery token; owner or admin; `HubDb.DeleteRepo` + `PurgeRepoStorage` (bare repo + world + map caches) |
+| **Operator takedown** | `POST /admin/repos/{repo}/remove` | repo name | master token (Bearer, no CSRF — intentionally outside cookie path); returns 403 if not admin; audited |
 | **Config** | env / `.env` | OAuth secrets, master token | `.env` gitignored; `LoadDotEnv` never overrides real env |
 
 ## Start here (the files that matter)
@@ -78,12 +82,16 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
 
 Honest list of the thinner spots — these are the bugs I'd expect a review to find:
 
-1. **Resource exhaustion / DoS (the big one).** There is **no size or rate limiting** on push, on
-   `Checkout.Materialize`, or on map rendering. A single push can be enormous (we hit a 310k-chunk world that
-   pegged the host). `WorldCache`/`MapCache` write to disk **unbounded** — a hostile or just-large push can
-   fill the disk; many distinct commits multiply it. `MapRenderer` caps the rendered *span* at 160×160 chunks
-   but the per-render chunk dictionary holds up to 30k decoded chunks, and the materialize that precedes it is
-   unbounded. No auth-attempt throttling. **This is the area most likely to bite a real deployment.**
+1. **Resource exhaustion / DoS (the big one).** The hub has **per-IP rate limits** (fixed-window,
+   configurable via `MCAHUB_RATELIMIT_*`), a **push body cap** (`MCAHUB_MAX_PUSH_BYTES`, default 256 MiB),
+   **LRU cache ceilings** for both the world and map caches (`MCAHUB_CACHE_MAX_GB` / `MCAHUB_MAP_CACHE_MAX_GB`),
+   a **manifest entry cap** (`MCAHUB_MAX_MANIFEST_ENTRIES`) against inode exhaustion, and a **bad-token lockout**
+   (`AuthThrottle`, configurable via `MCAHUB_AUTH_MAX_FAILURES` / `MCAHUB_AUTH_LOCKOUT_SECONDS`). What's still
+   *not* bounded: `Checkout.Materialize` CPU time for a large world, and the render concurrency gate
+   (`MCAHUB_MAX_RENDER_CONCURRENCY`) only queues — it doesn't reject. A single enormous-but-valid push can
+   still peg the host during materialize or render; many distinct commits at the cache ceiling trigger LRU
+   churn under the `MaxWorldsPerRepo` caps. **This remains the area most likely to bite a real deployment;**
+   confirm the cache limits are tuned for the host's disk size before going public.
 2. **Untrusted NBT → image.** `MapRenderer` trusts the core's `BlockStateDecoder` output and sizes image
    buffers from chunk coordinates found in the data. Worth checking: extreme/negative section `Y`, malformed
    palettes, huge or sparse chunk bounds, and whether any allocation is attacker-sized before the 160-cap

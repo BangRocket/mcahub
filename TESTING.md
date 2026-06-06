@@ -79,18 +79,19 @@ without a live OAuth provider:
   (`NameIdentifier`/`Name`/`avatar`). Register it **under the same scheme name as the real
   cookie scheme** so `[Authorize]`/the access checks are satisfied; then a request sets one
   header to act as any role on the read→write→maintain→admin→owner ladder. (Pattern adapted
-  from a sibling .NET project's `FakeAuthenticationHandler`.)
+  from the mcadiff core's `FakeAuthenticationHandler`.)
 
 Synthesize fixtures in **code**, never commit binaries — build worlds/chunks with a
 `SyntheticChunk` builder (the core's TestAnvil approach), the way the renderer suite needs.
 
-## Gotchas (adopted from a sibling project's hard-won list)
+## Gotchas (adopted from the mcadiff core's hard-won list)
 
 - **Revert-the-fix-must-fail.** Reproduce the bug shape, not the happy path.
 - **Byte-exact, not length.** A "length ≥ N" assertion on a serializer is trivially true.
 - **Assert by relationship, not by magic constant.** Re-derive baselines at runtime.
 - **Skip-reason clarity.** A skipped test must say *why* — for the hub, distinguish
-  "sibling `mca-git` missing" from other build failures (the CS0246 trap).
+  "`mca-git` submodule not initialized" from other build failures (the CS0246 trap; run
+  `git submodule update --init` to fix).
 - **One-time tokens get a replay test** — present the same token twice, expect success then
   rejection.
 - **No PR/issue numbers or line-numbers in source comments** — describe the invariant;

@@ -38,8 +38,8 @@ sign in at `/auth/dev`.
 
 ## Architecture
 
-One ASP.NET Core project (`src/McadiffHub/`, ~1900 lines, no NuGet packages beyond the framework —
-even the PNG encoder is hand-rolled). `Program.cs` wires everything; each file is one subsystem:
+One ASP.NET Core project (`src/McadiffHub/`, ~3150 lines across 19 files, no NuGet packages beyond the
+framework — even the PNG encoder is hand-rolled). `Program.cs` wires everything; each file is one subsystem:
 
 - **`Transport.cs`** — maps the mcadiff HTTP protocol (`/r/{repo}/info/refs`, `/objects`, `/pack`,
   `/refs/heads/{branch}`, `/have`) onto a per-request core `RemoteService`. Every GET goes through
@@ -70,6 +70,18 @@ even the PNG encoder is hand-rolled). `Program.cs` wires everything; each file i
   once, a map rendered to PNG once. `MapRenderer` scans 1.18+ `sections`/`block_states` top-down for
   the first non-air block, colors + height-shades it, and writes the PNG itself (`ZLibStream` + a
   CRC32). Render span is capped at 160×160 chunks.
+- **`AuditLog.cs`** — append-only JSONL trail of role/visibility/ownership/ref/token changes; surfaced
+  at `/r/<name>/audit` (owners/admins only).
+- **`AgeGate.cs`** — COPPA-style gate: when `MCAHUB_MIN_AGE_GATE=1`, any signed-in user who hasn't
+  confirmed 13+/parental consent is bounced to `/auth/age-gate` before any other page serves.
+- **`AuthThrottle.cs`** — bad-token lockout: tracks bad Bearer tokens per IP and imposes a doubling
+  cooldown once `MCAHUB_AUTH_MAX_FAILURES` is exceeded.
+- **`StartupGuard.cs`** — refuses to start if open mode or `MCAHUB_DEV_LOGIN` is exposed on a
+  non-loopback interface without an explicit override.
+- **`ForwardedProxies.cs`** — applies `X-Forwarded-*` headers when `MCAHUB_BEHIND_PROXY=1`, scoped to
+  `MCAHUB_TRUSTED_PROXY` (default loopback) to prevent header spoofing.
+- **`MinecraftAuth.cs`** — the Xbox→XSTS→Minecraft Services token chain used in Minecraft OAuth
+  `OnCreatingTicket`; intermediate tokens are used transiently and never persisted.
 
 ## Security invariants to preserve
 

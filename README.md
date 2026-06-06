@@ -50,9 +50,10 @@ Open <http://localhost:5080> to browse it.
 | Setting | Env var | Default | Purpose |
 |---|---|---|---|
 | Data dir | `MCAHUB_DATA` | `data/repos` | Where hosted `<name>.mcagit` repos live. |
-| World cache | `MCAHUB_CACHE` | sibling `cache/` | Materialized worlds for the explorer (one checkout per immutable backup). |
-| Account DB | `MCAHUB_DB` | sibling `hub.json` | Users, hashed tokens, repo ownership/visibility. |
-| Audit log | `MCAHUB_AUDIT` | sibling `audit.jsonl` | Append-only trail of role/visibility/ownership/ref/token changes; owners see a per-world history at `/r/<name>/audit`. |
+| World cache | `MCAHUB_CACHE` | `data/cache` | Materialized worlds for the explorer (one checkout per immutable backup). |
+| Map cache | `MCAHUB_MAPS` | `data/maps` | Rendered map PNGs (one per immutable commit). |
+| Account DB | `MCAHUB_DB` | `data/hub.json` | Users, hashed tokens, repo ownership/visibility. |
+| Audit log | `MCAHUB_AUDIT` | `data/audit.jsonl` | Append-only trail of role/visibility/ownership/ref/token changes; owners see a per-world history at `/r/<name>/audit`. |
 | Push token | `MCAHUB_TOKEN` | (none) | A shared/master token. In open mode it gates writes; in accounts mode it's an admin bypass. |
 | Push token (hashed) | `MCAHUB_TOKEN_SHA256` | (none) | SHA-256 hex of the master token(s) — keeps the plaintext out of the env. Accepts a comma/space list so you can **rotate without downtime**: add the new hash, switch clients, then drop the old one. |
 | Bind URL | `ASPNETCORE_URLS` | `http://localhost:5080` | Put it behind a reverse proxy for TLS. |
@@ -200,10 +201,12 @@ redirect / clone URLs.
 
 Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, a
 **world explorer** (players + find an entity / block entity / sign, backed by a materialize-once world
-cache), **rendered maps** + a **time-machine scrubber**, and **accounts** (OAuth sign-in, per-user tokens,
-public/private worlds, collaborators, teams). Natural next steps (some shared with the mcadiff GUI RFC):
+cache), **rendered maps** + a **time-machine scrubber**, **accounts** (OAuth sign-in, per-user tokens,
+public/private worlds, collaborators, teams), multi-provider sign-in (Microsoft, Minecraft, Discord),
+COPPA age gate, AUP page, abuse-report link + operator takedown, user suspension, account/world deletion
+(GDPR/CCPA erasure), per-user world quota, and an **audit log** (`/r/<name>/audit` — role/visibility/
+ownership/ref/token changes). Natural next steps (some shared with the mcadiff GUI RFC):
 
-- An audit log of who changed roles / visibility / refs, and ownership transfer.
 - Map thumbnails on the backup timeline, and a focusable region/coordinate jump in the map.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
