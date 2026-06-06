@@ -125,6 +125,20 @@ public static class Pages
             }
             return Results.Redirect($"/r/{repo}");
         });
+        app.MapPost("/r/{repo}/restore/{hash}", async (string repo, string hash, HttpContext ctx) => // roll a world back to a backup (#24)
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (!store.Exists(repo)) return Results.NotFound();
+            if (Auth.Current(ctx) is not { } me || !Auth.CanWrite(cfg, db, repo, me.Id, admin: false))
+                return Results.Redirect($"/r/{repo}");
+            try
+            {
+                if (RestoreCommit(store.Open(repo), hash, me.Login) is { } restored)
+                    Log(ctx, audit, "world.restore", repo, $"→ {hash[..Math.Min(10, hash.Length)]} as {restored[..10]}");
+            }
+            catch { return NotFound("backup", Auth.HeaderRight(ctx, cfg)); }
+            return Results.Redirect($"/r/{repo}");
+        });
         app.MapPost("/r/{repo}/transfer", async (string repo, HttpContext ctx) => // hand the repo to another user (#17)
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
@@ -230,6 +244,21 @@ public static class Pages
             PurgeRepoStorage(repo, store, cache, maps);
             return Results.Ok();
         });
+    }
+
+    /// <summary>Roll a world back to <paramref name="targetRef"/> by committing that backup's tree as a
+    /// NEW backup on the current branch — reversible (the pre-restore state stays in history), never an
+    /// in-place overwrite (#24). Returns the new commit, or null if the world is already at that state.</summary>
+    internal static string? RestoreCommit(Repository repo, string targetRef, string actor)
+    {
+        string target = repo.ResolveRef(targetRef);
+        string tree = repo.ReadCommit(target).Tree;
+        string branch = repo.CurrentBranch() ?? "main";
+        string? head = repo.ReadBranch(branch);
+        if (head is not null && repo.ReadCommit(head).Tree == tree) return null; // already there
+        string restored = repo.CreateCommit(tree, head is null ? [] : [head], $"restore to {target[..10]}", actor);
+        repo.WriteBranch(branch, restored);
+        return restored;
     }
 
     /// <summary>Remove a repo's on-disk bytes: the bare repo + its materialized-world and map caches.</summary>
@@ -468,6 +497,10 @@ public static class Pages
         b.Append($"<h1>Backup {commit[..10]}</h1>");
         b.Append($"""<p class="cmeta">{E(c.Message)}<br><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Signature is not null ? " · ✓ signed" : "")}</span></p>""");
         b.Append($"""<p class="actions"><a href="/r/{E(name)}/world/{commit}">explore this world</a>{(parent is null ? "" : $""" · <a href="/r/{E(name)}/compare/{parent}/{commit}">compare with previous</a>""")}</p>""");
+        // Roll the world back to this backup — completes the headline promise (#24). The map/explorer above
+        // is the preview; the restore itself adds a NEW backup (reversible), never an in-place overwrite.
+        if (Auth.Current(ctx) is { } me && Auth.CanWrite(cfg, db, name, me.Id, admin: false))
+            b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/restore/{commit}" data-confirm="Restore the world to this backup? It adds a NEW backup with this content (so it's reversible) and becomes the latest state.">{Auth.CsrfField(ctx)}<button>⟲ Restore this backup</button></form>""");
         b.Append($"""<div class="map">{MapBox($"/r/{E(name)}/map/{commit}.png", "top-down map of this backup")}</div>""");
 
         RenderGrief(b, g);
