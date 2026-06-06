@@ -30,10 +30,8 @@ public sealed class MapCache
 
     public async Task<byte[]> PngAsync(string repoName, Repository repo, string commit, CancellationToken ct, MapDimension dim = MapDimension.Overworld)
     {
-        // Overworld keeps the bare <commit>.png path (back-compat); the Nether/End get a suffix (#27).
-        string suffix = dim == MapDimension.Overworld ? "" : "-" + dim.ToString().ToLowerInvariant();
-        string path = Path.Combine(_root, repoName, commit + suffix + ".png");
-        string key = repoName + ":" + commit + suffix;
+        string path = PathFor(repoName, commit, dim);
+        string key = RenderKey(repoName, commit, dim);
         if (await TryReadAsync(path, key, ct) is { } hit) return hit; // serve cached, tolerating a concurrent eviction (TOCTOU)
         return await _gate.RunAsync(key, async () =>
         {
@@ -48,6 +46,18 @@ public sealed class MapCache
             return png;
         }, ct);
     }
+
+    /// <summary>A cache-only probe: returns the cached PNG for a commit's map, or null if it hasn't been
+    /// rendered yet (a cold map). Lets the render queue serve a warm map without touching the worker pool.</summary>
+    public Task<byte[]?> TryCachedAsync(string repoName, string commit, MapDimension dim, CancellationToken ct) =>
+        TryReadAsync(PathFor(repoName, commit, dim), RenderKey(repoName, commit, dim), ct);
+
+    /// <summary>The cache key (also the render-gate and job key) for a commit's map in a given dimension.</summary>
+    public static string RenderKey(string repoName, string commit, MapDimension dim) => repoName + ":" + commit + Suffix(dim);
+
+    // Overworld keeps the bare <commit>.png path (back-compat); the Nether/End get a suffix (#27).
+    private static string Suffix(MapDimension dim) => dim == MapDimension.Overworld ? "" : "-" + dim.ToString().ToLowerInvariant();
+    private string PathFor(string repoName, string commit, MapDimension dim) => Path.Combine(_root, repoName, commit + Suffix(dim) + ".png");
 
     // Read a cached PNG, returning null (→ re-render) if it was evicted between the check and the read — the
     // LRU eviction runs under the quota lock, not ours, so File.Exists-then-read had a TOCTOU race. (audit LOW)

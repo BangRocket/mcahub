@@ -88,6 +88,20 @@ var db = new HubDb(dbPath);
 var audit = new AuditLog(auditPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
 
+// Cold map renders run as resumable background jobs (#41) off the request thread: a client disconnect or
+// request timeout no longer aborts an in-flight render — it finishes and fills the immutable cache. Durable
+// markers (re-enqueued at startup) let a render interrupted by a crash or rolling deploy resume.
+var renderQueue = new RenderQueue(
+    cached: (repo, commit, dim, ct) => maps.TryCachedAsync(repo, commit, dim, ct),
+    // store.Exists re-validates the repo name (a resumed job's name comes from a marker file, not a
+    // just-checked request) before any path is built; a deleted/bogus repo throws → the job drops its marker.
+    render: (repo, commit, dim, ct) => store.Exists(repo)
+        ? maps.PngAsync(repo, store.Open(repo), commit, ct, dim)
+        : throw new DirectoryNotFoundException($"repo '{repo}' no longer exists"),
+    jobsDir: mapDir.TrimEnd('/', '\\') + ".jobs",
+    workers: renderConcurrency);
+builder.Services.AddHostedService(_ => renderQueue);
+
 // Fail closed (#9): never serve open mode (anonymous read+write+create) without an explicit override, or
 // dev-login (passwordless) at all, on a non-loopback interface — the red team's #1 way a public hub is owned.
 string bindUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5080";
@@ -163,7 +177,7 @@ int maxWorldsPerUser = int.TryParse(app.Configuration["MaxWorldsPerUser"] ?? Env
 string? discordWebhook = app.Configuration["DiscordWebhook"] ?? Environment.GetEnvironmentVariable("MCAHUB_DISCORD_WEBHOOK"); // grief alerts on push (#25)
 Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser, discordWebhook); // mcadiff clone/fetch/push under /r/{repo}/…
 string? reportEmail = app.Configuration["ReportEmail"] ?? Environment.GetEnvironmentVariable("MCAHUB_REPORT_EMAIL"); // abuse-report address (#35)
-Pages.MapPages(app, store, cache, maps, db, auth, audit, reportEmail); // the web UI (browse + compare + world-state + map + account)
+Pages.MapPages(app, store, cache, maps, renderQueue, db, auth, audit, reportEmail); // the web UI (browse + compare + world-state + map + account)
 
 // Liveness probe for proxies/orchestrators — intentionally unauthenticated + rate-limit exempt (#32).
 // Document that it must not be blocked at the proxy.

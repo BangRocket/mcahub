@@ -15,7 +15,7 @@ public static class Pages
     /// <summary>Request-timeout policy name applied to the cold-render map endpoint (registered in Program).</summary>
     public const string RenderTimeoutPolicy = "render";
 
-    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg, AuditLog audit, string? reportEmail = null)
+    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, RenderQueue renderQueue, HubDb db, Auth.Config cfg, AuditLog audit, string? reportEmail = null)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/aup", (HttpContext ctx) => Aup(ctx, cfg, reportEmail));
@@ -29,7 +29,7 @@ public static class Pages
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
             World(ctx, store, db, cfg, cache, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
-        app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, maps, db, cfg, repo, reff))
+        app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, renderQueue, db, cfg, repo, reff))
             .WithRequestTimeout(RenderTimeoutPolicy); // hard server-side deadline on cold renders
         app.MapGet("/r/{repo}/timeline", (string repo, HttpContext ctx) => Scrub(ctx, store, db, cfg, repo));
 
@@ -731,14 +731,15 @@ public static class Pages
         </div>
         """;
 
-    private static async Task<IResult> Map(HttpContext ctx, RepoStore store, MapCache maps, HubDb db, Auth.Config cfg, string name, string refName)
+    private static async Task<IResult> Map(HttpContext ctx, RepoStore store, RenderQueue renderQueue, HubDb db, Auth.Config cfg, string name, string refName)
     {
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return Results.NotFound();
         Repository repo = store.Open(name);
         string commit;
         try { commit = repo.ResolveRef(refName); } catch { return Results.NotFound(); }
         MapDimension dim = ctx.Request.Query["dim"].ToString() switch { "nether" => MapDimension.Nether, "end" => MapDimension.End, _ => MapDimension.Overworld };
-        byte[] png = await maps.PngAsync(name, repo, commit, ctx.RequestAborted, dim);
+        // A cold render runs as a background job; a client disconnect won't abort it (it finishes + caches).
+        byte[] png = await renderQueue.RequestAsync(name, commit, dim, ctx.RequestAborted);
         ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable"; // a commit's map (per dimension) never changes
         return Results.Bytes(png, "image/png");
     }
