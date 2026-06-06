@@ -37,6 +37,28 @@ public class TakedownTests
     }
 
     [Fact]
+    public void Suspending_revokes_tokens_bumps_epoch_and_blocks_management() // audit LOW: suspension takes effect now
+    {
+        using var tmp = new TempDir();
+        var db = new HubDb(Path.Combine(tmp.Path, "hub.json"));
+        db.UpsertUser("alice", "alice", "Alice", "");
+        db.EnsureRepo("w", "alice", isPrivate: true); // alice owns w
+        string token = db.CreateToken("alice", "laptop", "write");
+        int epoch0 = db.GetUser("alice")!.Epoch;
+
+        Assert.NotNull(db.ResolveToken(token));                  // valid PAT before
+        Assert.True(Auth.CanManagePeople(db, "w", "alice"));     // owner can manage before
+
+        db.SetSuspended("alice", true);
+
+        Assert.Null(db.ResolveToken(token));                     // PAT revoked immediately (CLI is dead)
+        Assert.True(db.GetUser("alice")!.Epoch > epoch0);        // epoch bumped → live web sessions invalidated
+        Assert.False(Auth.CanManagePeople(db, "w", "alice"));    // suspended → can't manage people…
+        Assert.False(Auth.CanManageSettings(db, "w", "alice"));  // …or settings…
+        Assert.False(Auth.CanGrantRole(db, "w", "alice", "read")); // …or grant any role, even with the owner role
+    }
+
+    [Fact]
     public async Task The_master_token_can_remove_any_world()
     {
         using var f = new HubFactory(HubMode.Accounts, settings: [new("PushToken", "test-master-token")]);

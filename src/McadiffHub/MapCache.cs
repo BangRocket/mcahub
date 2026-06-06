@@ -34,10 +34,10 @@ public sealed class MapCache
         string suffix = dim == MapDimension.Overworld ? "" : "-" + dim.ToString().ToLowerInvariant();
         string path = Path.Combine(_root, repoName, commit + suffix + ".png");
         string key = repoName + ":" + commit + suffix;
-        if (File.Exists(path)) { _quota.Touch(key); return await File.ReadAllBytesAsync(path, ct); }
+        if (await TryReadAsync(path, key, ct) is { } hit) return hit; // serve cached, tolerating a concurrent eviction (TOCTOU)
         return await _gate.RunAsync(key, async () =>
         {
-            if (File.Exists(path)) { _quota.Touch(key); return await File.ReadAllBytesAsync(path, ct); } // double-check
+            if (await TryReadAsync(path, key, ct) is { } hit) return hit; // double-check under the gate
             string worldDir = _worlds.Materialize(repoName, repo, commit, ct);
             byte[] png = MapRenderer.Render(worldDir, dim, out _, _maxRenderChunks, ct);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -47,6 +47,22 @@ public sealed class MapCache
             _quota.Admit(key, repoName, path, png.LongLength); // a refused (huge) PNG just isn't cached; bytes still served
             return png;
         }, ct);
+    }
+
+    // Read a cached PNG, returning null (→ re-render) if it was evicted between the check and the read — the
+    // LRU eviction runs under the quota lock, not ours, so File.Exists-then-read had a TOCTOU race. (audit LOW)
+    private async Task<byte[]?> TryReadAsync(string path, string key, CancellationToken ct)
+    {
+        try
+        {
+            byte[] bytes = await File.ReadAllBytesAsync(path, ct);
+            _quota.Touch(key);
+            return bytes;
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null; // evicted out from under us — fall through to render
+        }
     }
 
     /// <summary>Delete a repo's whole rendered-map cache (on world/account deletion).</summary>
