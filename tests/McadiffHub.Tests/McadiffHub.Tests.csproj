@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\McadiffHub\McadiffHub.csproj" />
+    <ProjectReference Include="..\..\src\Sidecar\McadiffHub.Sidecar.csproj" />
   </ItemGroup>
 
 </Project>

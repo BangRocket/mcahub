@@ -65,6 +65,22 @@ mcadiff -C MyWorld.mcagit push http://localhost:5080/r/myworld main   # auto-cre
 
 Open <http://localhost:5080> to browse it.
 
+### Automatic backups (sidecar)
+
+For hands-off backups, run the **sidecar** (`src/Sidecar`) next to your server — it watches a world
+directory and auto-pushes a backup on a schedule and whenever the world changes (debounced), committing
+only when something actually changed, plus one final backup on shutdown:
+
+```sh
+MCASIDE_WORLD=/srv/minecraft/world \
+MCASIDE_REMOTE=http://localhost:5080/r/myworld \
+MCASIDE_TOKEN=mcahub_… \
+dotnet run --project src/Sidecar          # or the published `mcahub-sidecar` binary
+```
+
+This is the no-Java, any-server path; a drop-in **Paper/Spigot/Fabric** plugin (which can also
+`save-off`/`save-all` around the snapshot) is tracked as a separate Java deliverable.
+
 ### Configuration
 
 | Setting | Env var | Default | Purpose |
