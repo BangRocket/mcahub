@@ -19,6 +19,10 @@ public static class Pages
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/aup", (HttpContext ctx) => Aup(ctx, cfg, reportEmail));
+        app.MapGet("/upload", (HttpContext ctx) => UploadPage(ctx, cfg));     // drag-drop a world, no CLI (#26)
+        // Block body (not `=> await …`): an expression-bodied async lambda binds as a raw RequestDelegate
+        // and its IResult is discarded. A block body binds as the rich handler that executes the result.
+        app.MapPost("/upload", async (HttpContext ctx) => { return await UploadInspect(ctx, cfg); }); // stateless: extract → render → discard
         app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo, reportEmail));
         app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, repo, hash));
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
@@ -381,6 +385,81 @@ public static class Pages
         return Page(name, b.ToString(), chip);
     }
 
+    // ---- drag-and-drop upload (#26): stateless — extract, render, discard. No persistence, no token. ----
+
+    private const long UploadMaxUncompressed = 512L * 1024 * 1024; // 512 MiB extracted (zip-bomb ceiling)
+    private const int UploadMaxEntries = 200_000;
+    private const int UploadRenderChunks = 4096;                   // bounded preview render
+
+    private static IResult UploadPage(HttpContext ctx, Auth.Config cfg) => Page("Inspect a world", """
+        <h1>Inspect a world</h1>
+        <p class="meta">Drop a Minecraft world (a <code>.zip</code> that contains the <code>region/</code> folder) to see
+        its top-down map and players — no CLI, no account. Your upload is rendered and <strong>immediately discarded</strong>.</p>
+        <form id="upload" class="upload-drop" method="post" action="/upload" enctype="multipart/form-data">
+          <p>Drag a <code>.zip</code> here, or choose one:</p>
+          <input type="file" name="world" accept=".zip,application/zip" required>
+          <button>Inspect</button>
+        </form>
+        """, Auth.HeaderRight(ctx, cfg));
+
+    private static async Task<IResult> UploadInspect(HttpContext ctx, Auth.Config cfg)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!ctx.Request.HasFormContentType) return NotFound("upload", chip);
+        IFormCollection form;
+        try { form = await ctx.Request.ReadFormAsync(ctx.RequestAborted); }
+        catch { return Page("Upload", UploadError("That upload was too large or malformed."), chip); }
+        if (form.Files.GetFile("world") is not { } file) return Results.Redirect("/upload");
+
+        string tmp = Path.Combine(Path.GetTempPath(), "mcahub-upload-" + Guid.NewGuid().ToString("N")[..12]);
+        try
+        {
+            using (Stream s = file.OpenReadStream()) SafeUnzip.Extract(s, tmp, UploadMaxUncompressed, UploadMaxEntries);
+            if (FindWorldDir(tmp) is not { } worldDir)
+                return Page("Upload", UploadError("Couldn't find a <code>region/</code> folder in that .zip — is it a Minecraft world?"), chip);
+            byte[] png = MapRenderer.Render(worldDir, out MapInfo info, UploadRenderChunks, ctx.RequestAborted);
+            var players = new WorldQuery(worldDir).Players().Take(50).ToList();
+            return Page("Uploaded world", UploadResult(png, info, players), chip);
+        }
+        catch (UnsafeUploadException e) { return Page("Upload", UploadError(E(e.Message)), chip); }
+        catch (OperationCanceledException) { return Page("Upload", UploadError("Upload cancelled."), chip); }
+        catch { return Page("Upload", UploadError("Couldn't read that as a Minecraft world."), chip); }
+        finally { try { if (Directory.Exists(tmp)) Directory.Delete(tmp, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    private static string UploadError(string msg) =>
+        $"""<h1>Couldn't inspect that</h1><p class="empty">{msg}</p><p class="back"><a href="/upload">← try another</a></p>""";
+
+    /// <summary>Locate the world root (the dir holding <c>region/</c>) inside an extracted upload, which may
+    /// be at the top level or one folder down.</summary>
+    private static string? FindWorldDir(string root)
+    {
+        if (Directory.Exists(Path.Combine(root, "region"))) return root;
+        foreach (string dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories).Take(2000))
+            if (Directory.Exists(Path.Combine(dir, "region"))) return dir;
+        return null;
+    }
+
+    private static string UploadResult(byte[] png, MapInfo info, List<PlayerHit> players)
+    {
+        var sb = new StringBuilder();
+        sb.Append("""<p class="back"><a href="/upload">← inspect another</a></p><h1>Uploaded world</h1>""");
+        sb.Append($"""<p class="meta">{info.Chunks} chunks rendered{(info.Truncated ? " · truncated" : "")} · not stored</p>""");
+        // Inline as a data: URI (CSP allows img-src data:) so the page is self-contained — the temp world is
+        // already deleted, so there's nothing to serve a second request from.
+        sb.Append($"""<div class="map"><img src="data:image/png;base64,{Convert.ToBase64String(png)}" alt="top-down map of the uploaded world"></div>""");
+        sb.Append("<h2>Players</h2>");
+        if (players.Count == 0) sb.Append("""<p class="empty">No player data.</p>""");
+        else
+        {
+            sb.Append("<ul class=\"branches\">");
+            foreach (PlayerHit p in players)
+                sb.Append($"""<li>{E(p.Source)} <span class="meta">({p.X:0.#},{p.Y:0.#},{p.Z:0.#}) [{E(p.Dimension)}]</span></li>""");
+            sb.Append("</ul>");
+        }
+        return sb.ToString();
+    }
+
     private static IResult Home(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
@@ -388,6 +467,7 @@ public static class Pages
         var repos = store.List().Where(r => Auth.CanRead(cfg, db, r.Name, meId, admin: false)).ToList();
 
         var b = new StringBuilder("<h1>Worlds</h1>");
+        b.Append("""<p class="actions"><a href="/upload">⬆ Inspect a world</a> — drag in a .zip to see its map, no CLI</p>""");
         if (repos.Count == 0)
             b.Append("""<p class="empty">No worlds yet. Push one: <code>mcadiff push http://&lt;this-host&gt;/r/&lt;name&gt; main</code> (the hub auto-creates it).</p>""");
         else

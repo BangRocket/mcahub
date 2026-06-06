@@ -166,3 +166,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   table { display: block; overflow-x: auto; max-width: 100%; }
   ol.timeline li { flex-wrap: wrap; }
 }
+
+/* Drag-and-drop upload (#26) */
+.upload-drop { border: 2px dashed var(--border); border-radius: 10px; padding: 28px; text-align: center; margin: 16px 0; }
+.upload-drop.drag { border-color: var(--green); background: rgba(0,200,80,.06); }
+.upload-drop input[type=file] { margin: 10px 0; color: var(--muted); }
+.map img[src^="data:"] { max-width: 100%; height: auto; display: block; border-radius: 6px; }
