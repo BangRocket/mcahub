@@ -390,8 +390,9 @@ public static class Pages
             string vis = m.Private ? """<span class="vis vis-private">private</span>""" : """<span class="vis vis-public">public</span>""";
             b.Append($"""<p class="meta">{vis} · owned by {E(db.GetUser(m.OwnerId)?.Login ?? "?")}</p>""");
             if (me is not null && Auth.CanManageSettings(db, name, me.Id))
+                // Exposing a private world is consequential — guard "Make public" with a confirm (#31).
                 b.Append($"""
-                    <form class="settings" method="post" action="/r/{E(name)}/settings">
+                    <form class="settings" method="post" action="/r/{E(name)}/settings"{(m.Private ? """ data-confirm="Make this world PUBLIC? Anyone will be able to read and clone it — including player locations only after you also share with collaborators." """ : "")}>
                       {Auth.CsrfField(ctx)}
                       <input type="hidden" name="private" value="{(m.Private ? "off" : "on")}">
                       <button>Make {(m.Private ? "public" : "private")}</button>
@@ -413,24 +414,36 @@ public static class Pages
         else if (reportEmail is { Length: > 0 }) // a non-owner viewing someone else's world (#35)
             b.Append($"""<p class="actions meta"><a href="mailto:{E(reportEmail)}?subject={E($"Report: {name}")}">⚑ Report this world</a></p>""");
 
-        b.Append("<h2>Branches</h2><ul class=\"branches\">");
-        foreach (string br in repo.Branches())
-            if (repo.ReadBranch(br) is { } tip)
-                b.Append($"""<li><a href="/r/{E(name)}/commit/{tip}">{E(br)}</a> <span class="hash">{tip[..10]}</span></li>""");
-        b.Append("</ul>");
+        // A single branch is just noise to a non-dev — only show the section when there's a real choice (#31).
+        var branches = repo.Branches().ToList();
+        if (branches.Count > 1)
+        {
+            b.Append("<h2>Branches</h2><ul class=\"branches\">");
+            foreach (string br in branches)
+                if (repo.ReadBranch(br) is { } tip)
+                    b.Append($"""<li><a href="/r/{E(name)}/commit/{tip}">{E(br)}</a> <span class="hash">{tip[..10]}</span></li>""");
+            b.Append("</ul>");
+        }
 
         if (repo.HeadCommit() is { } head)
         {
             b.Append($"""<h2>Backups</h2><p class="actions"><a href="/r/{E(name)}/timeline">🕑 time machine — scrub the map across backups</a></p><ol class="timeline">""");
             string? cur = head;
-            for (int i = 0; cur is not null && i < 50; i++)
+            int i = 0;
+            for (; cur is not null && i < 50; i++)
             {
                 CommitObject c = repo.ReadCommit(cur);
                 string? par = repo.ParentsOf(cur) is [string pp, ..] ? pp : null;
-                string actions = $"""<a href="/r/{E(name)}/world/{cur}">explore</a>{(par is null ? "" : $""" · <a href="/r/{E(name)}/compare/{par}/{cur}">what changed</a>""")}""";
+                // The oldest backup has nothing to compare against — say so instead of dropping the link silently (#31).
+                string actions = par is null
+                    ? $"""<a href="/r/{E(name)}/world/{cur}">explore</a> · <span class="meta">first backup — nothing to compare</span>"""
+                    : $"""<a href="/r/{E(name)}/world/{cur}">explore</a> · <a href="/r/{E(name)}/compare/{par}/{cur}">what changed</a>""";
                 b.Append($"""<li><a href="/r/{E(name)}/commit/{cur}">{cur[..10]}</a> <span class="cmsg">{E(Oneline(c.Message))}</span><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Parents.Count > 1 ? " · merge" : "")}{(c.Signature is not null ? " · signed" : "")}</span><span class="actions">{actions}</span></li>""");
                 cur = par;
             }
+            // The list caps at 50 — tell a grief-hunter the older event is still reachable via the time machine (#31).
+            if (cur is not null)
+                b.Append($"""<li class="empty">… {(i)}+ shown; older backups exist — use the <a href="/r/{E(name)}/timeline">time machine</a> to reach them.</li>""");
             b.Append("</ol>");
         }
         else b.Append("""<p class="empty">No backups yet.</p>""");
@@ -474,13 +487,16 @@ public static class Pages
         try { ca = repo.ResolveRef(a); cb = repo.ResolveRef(bRef); } catch { return NotFound("backup", chip); }
 
         WorldDiff diff = RefDiff(repo, ca, cb, expand: true);
+        // Resolve each side's message + time so the page isn't two bare hashes — a grief-hunter needs to
+        // confirm they're looking at the right window (#31).
+        CommitObject commitA = repo.ReadCommit(ca), commitB = repo.ReadCommit(cb);
         var sb = new StringBuilder();
         sb.Append($"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p>""");
         sb.Append($"<h1>{ca[..10]} → {cb[..10]}</h1>");
         sb.Append($"""
             <div class="maps">
-              <figure><figcaption>before · {ca[..10]}</figcaption>{MapBox($"/r/{E(name)}/map/{ca}.png", "map before")}</figure>
-              <figure><figcaption>after · {cb[..10]}</figcaption>{MapBox($"/r/{E(name)}/map/{cb}.png", "map after")}</figure>
+              <figure><figcaption>before · {ca[..10]}<br><span class="meta">{E(Oneline(commitA.Message))} · {When(commitA.CommitTime ?? commitA.Time)}</span></figcaption>{MapBox($"/r/{E(name)}/map/{ca}.png", "map before")}</figure>
+              <figure><figcaption>after · {cb[..10]}<br><span class="meta">{E(Oneline(commitB.Message))} · {When(commitB.CommitTime ?? commitB.Time)}</span></figcaption>{MapBox($"/r/{E(name)}/map/{cb}.png", "map after")}</figure>
             </div>
             """);
         RenderGrief(sb, GriefReport.Analyze(diff));
@@ -533,7 +549,7 @@ public static class Pages
             sb.Append($"""
                 <h2>Find</h2>
                 <form class="find" method="get" action="/r/{E(name)}/world/{E(refName)}">
-                  <select name="find">{Opt("entity", findKind)}{Opt("block-entity", findKind)}{Opt("sign", findKind)}</select>
+                  <select name="find">{Opt("entity", findKind, "creature / mob")}{Opt("block-entity", findKind, "storage (chest, barrel…)")}{Opt("sign", findKind, "signs")}</select>
                   <input name="q" placeholder="id or text — chest, zombie, spawn…" value="{E(q)}">
                   <button>Search</button>
                 </form>
@@ -779,12 +795,15 @@ public static class Pages
                 """);
     }
 
-    private static string RoleOpts() => Opt("read", "read") + Opt("write", null) + Opt("maintain", null) + Opt("admin", null);
+    // One-phrase capability hints so read/write/maintain/admin mean something to a non-dev (#31).
+    private static string RoleOpts() =>
+        Opt("read", "read", "read — browse & clone") + Opt("write", null, "write — push new backups") +
+        Opt("maintain", null, "maintain — + change visibility") + Opt("admin", null, "admin — + add/remove people");
 
     private static bool CanSee(HttpContext ctx, HubDb db, Auth.Config cfg, string repo) =>
         Auth.CanRead(cfg, db, repo, Auth.Current(ctx)?.Id, admin: false);
 
-    private static string Opt(string v, string? sel) => $"""<option value="{v}"{(v == sel ? " selected" : "")}>{v}</option>""";
+    private static string Opt(string v, string? sel, string? label = null) => $"""<option value="{v}"{(v == sel ? " selected" : "")}>{E(label ?? v)}</option>""";
 
     private static void RenderGrief(StringBuilder b, GriefSummary g)
     {
@@ -898,5 +917,17 @@ public static class Pages
 
     private static string Oneline(string msg) { int nl = msg.IndexOf('\n'); return nl < 0 ? msg : msg[..nl]; }
     private static string Short(string id) => id.StartsWith("minecraft:") ? id["minecraft:".Length..] : id;
-    private static string When(string iso) => DateTimeOffset.TryParse(iso, out var d) ? d.ToString("yyyy-MM-dd HH:mm") : iso;
+    private static string When(string iso)
+    {
+        if (!DateTimeOffset.TryParse(iso, out var d)) return iso;
+        string abs = d.ToString("yyyy-MM-dd HH:mm");
+        TimeSpan ago = DateTimeOffset.UtcNow - d.ToUniversalTime();
+        // A grief-hunter thinks in "last night", not dates — prefix a relative time for recent events (#31).
+        if (ago < TimeSpan.Zero) return abs;
+        if (ago < TimeSpan.FromMinutes(1)) return $"just now · {abs}";
+        if (ago < TimeSpan.FromHours(1)) return $"{(int)ago.TotalMinutes}m ago · {abs}";
+        if (ago < TimeSpan.FromHours(24)) return $"{(int)ago.TotalHours}h ago · {abs}";
+        if (ago < TimeSpan.FromDays(7)) return $"{(int)ago.TotalDays}d ago · {abs}";
+        return abs;
+    }
 }

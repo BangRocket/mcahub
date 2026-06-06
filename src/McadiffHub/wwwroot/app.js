@@ -40,7 +40,12 @@
     playBtn.addEventListener('click', function () {
       if (timer) { clearInterval(timer); timer = null; playBtn.textContent = '▶ play'; return; }
       playBtn.textContent = '⏸ pause';
-      timer = setInterval(function () { var v = +slider.value + 1; if (v > B.length - 1) v = 0; slider.value = v; show(v); }, 1200);
+      // Auto-pause at the present instead of silently looping back to the start (#31).
+      timer = setInterval(function () {
+        var v = +slider.value + 1;
+        if (v > B.length - 1) { clearInterval(timer); timer = null; playBtn.textContent = '▶ play'; return; }
+        slider.value = v; show(v);
+      }, 1200);
     });
     show(+slider.value);
   }
