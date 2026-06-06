@@ -63,3 +63,19 @@
     wireConfirms();
   });
 })();
+
+// Drag-and-drop for the upload form (#26): drop a .zip onto the zone → it fills the file input.
+(function () {
+  var drop = document.getElementById('upload');
+  if (!drop) return;
+  var input = drop.querySelector('input[type=file]');
+  ['dragenter', 'dragover'].forEach(function (e) {
+    drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('drag'); });
+  });
+  ['dragleave', 'drop'].forEach(function (e) {
+    drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.remove('drag'); });
+  });
+  drop.addEventListener('drop', function (ev) {
+    if (ev.dataTransfer && ev.dataTransfer.files.length) input.files = ev.dataTransfer.files;
+  });
+})();
