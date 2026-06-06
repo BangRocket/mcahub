@@ -467,7 +467,9 @@ public static class Pages
                 string actions = par is null
                     ? $"""<a href="/r/{E(name)}/world/{cur}">explore</a> · <span class="meta">first backup — nothing to compare</span>"""
                     : $"""<a href="/r/{E(name)}/world/{cur}">explore</a> · <a href="/r/{E(name)}/compare/{par}/{cur}">what changed</a>""";
-                b.Append($"""<li><a href="/r/{E(name)}/commit/{cur}">{cur[..10]}</a> <span class="cmsg">{E(Oneline(c.Message))}</span><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Parents.Count > 1 ? " · merge" : "")}{(c.Signature is not null ? " · signed" : "")}</span><span class="actions">{actions}</span></li>""");
+                // A lazy-loaded map thumbnail makes history skimmable visually (#27); loading="lazy" + the
+                // render gate + the render rate-limit keep a long timeline from triggering a render storm.
+                b.Append($"""<li><a class="thumb" href="/r/{E(name)}/commit/{cur}"><img src="/r/{E(name)}/map/{cur}.png" alt="" loading="lazy"></a><a href="/r/{E(name)}/commit/{cur}">{cur[..10]}</a> <span class="cmsg">{E(Oneline(c.Message))}</span><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Parents.Count > 1 ? " · merge" : "")}{(c.Signature is not null ? " · signed" : "")}</span><span class="actions">{actions}</span></li>""");
                 cur = par;
             }
             // The list caps at 50 — tell a grief-hunter the older event is still reachable via the time machine (#31).
@@ -501,7 +503,11 @@ public static class Pages
         // is the preview; the restore itself adds a NEW backup (reversible), never an in-place overwrite.
         if (Auth.Current(ctx) is { } me && Auth.CanWrite(cfg, db, name, me.Id, admin: false))
             b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/restore/{commit}" data-confirm="Restore the world to this backup? It adds a NEW backup with this content (so it's reversible) and becomes the latest state.">{Auth.CsrfField(ctx)}<button>⟲ Restore this backup</button></form>""");
-        b.Append($"""<div class="map">{MapBox($"/r/{E(name)}/map/{commit}.png", "top-down map of this backup")}</div>""");
+        // Dimension toggle — Overworld / Nether / End (#27). The selected one renders; others link with ?dim.
+        string dimSel = ctx.Request.Query["dim"].ToString() is "nether" or "end" ? ctx.Request.Query["dim"].ToString() : "overworld";
+        string dimQ = dimSel == "overworld" ? "" : "?dim=" + dimSel;
+        b.Append($"""<p class="actions">{DimLink(name, commit, "overworld", dimSel)} · {DimLink(name, commit, "nether", dimSel)} · {DimLink(name, commit, "end", dimSel)}</p>""");
+        b.Append($"""<div class="map">{MapBox($"/r/{E(name)}/map/{commit}.png{dimQ}", $"top-down {dimSel} map of this backup")}</div>""");
 
         RenderGrief(b, g);
         b.Append("<h2>Changes</h2>");
@@ -601,6 +607,15 @@ public static class Pages
         return Page($"World {commit[..10]}", sb.ToString(), chip);
     }
 
+    /// <summary>One Overworld/Nether/End toggle link for the backup map (#27); the current one is bold.</summary>
+    private static string DimLink(string repo, string commit, string dim, string current)
+    {
+        string label = dim switch { "nether" => "Nether", "end" => "End", _ => "Overworld" };
+        if (dim == current) return $"<strong>{label}</strong>";
+        string q = dim == "overworld" ? "" : "?dim=" + dim;
+        return $"""<a href="/r/{E(repo)}/commit/{commit}{q}">{label}</a>""";
+    }
+
     /// <summary>A map image wrapped in a loading-aware box (the layout's script reveals it once the PNG
     /// — which can take a few seconds to render cold — finishes loading).</summary>
     private static string MapBox(string url, string alt) => $"""
@@ -616,8 +631,9 @@ public static class Pages
         Repository repo = store.Open(name);
         string commit;
         try { commit = repo.ResolveRef(refName); } catch { return Results.NotFound(); }
-        byte[] png = await maps.PngAsync(name, repo, commit, ctx.RequestAborted);
-        ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable"; // a commit's map never changes
+        MapDimension dim = ctx.Request.Query["dim"].ToString() switch { "nether" => MapDimension.Nether, "end" => MapDimension.End, _ => MapDimension.Overworld };
+        byte[] png = await maps.PngAsync(name, repo, commit, ctx.RequestAborted, dim);
+        ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable"; // a commit's map (per dimension) never changes
         return Results.Bytes(png, "image/png");
     }
 
