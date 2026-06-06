@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+
 namespace McadiffHub.Tests;
 
 /// <summary>
@@ -38,5 +40,25 @@ public class SecretsTests
 
         Assert.NotEmpty(logs);                    // we actually captured log output
         Assert.DoesNotContain(logs, line => line.Contains(secret));
+    }
+
+    [Fact]
+    public void Config_and_provider_ToString_never_echo_a_secret() // audit: make secret-logging structurally safe
+    {
+        const string clientSecret = "OAUTH-SECRET-do-not-echo";
+        const string master = "MASTER-TOKEN-do-not-echo";
+        Auth.Config cfg = Auth.Read(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["OAuthClientId"] = "client-id-public",
+            ["OAuthClientSecret"] = clientSecret,
+            ["PushToken"] = master,
+        }).Build());
+
+        string s = cfg.ToString();
+        Assert.DoesNotContain(clientSecret, s);
+        Assert.DoesNotContain(master, s);
+        Assert.Contains("Master = set", s);                       // still informative, just not the value
+        foreach (Auth.Provider p in cfg.Providers)
+            Assert.DoesNotContain(clientSecret, p.ToString());    // a provider can't leak its secret either
     }
 }
