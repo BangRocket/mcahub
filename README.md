@@ -129,6 +129,14 @@ nothing is silently lost) instead of a 500. `hub.json` carries a schema version:
 **newer** hub makes this one **refuse to start** with an actionable message rather than misread and
 overwrite it — back it up and upgrade.
 
+On **SIGTERM** (a deploy, `docker stop`, systemd) the hub **drains** — it stops accepting new connections
+and lets in-flight requests finish (up to the render deadline) instead of guillotining a render. Map
+renders and world materializations are **idempotent and resumable**: both caches are keyed by the
+immutable backup commit, so a killed render just re-runs on the next view and the cache fills. **Run a
+single instance** per data directory for now — the JSON account store isn't yet safe for two processes
+sharing one `hub.json` (multi-instance store locking is tracked separately); scale vertically or use a
+single active instance behind your proxy.
+
 ### Auth modes
 
 The hub runs in one of three modes, chosen by what you configure:
