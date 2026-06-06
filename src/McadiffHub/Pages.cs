@@ -15,10 +15,10 @@ public static class Pages
     /// <summary>Request-timeout policy name applied to the cold-render map endpoint (registered in Program).</summary>
     public const string RenderTimeoutPolicy = "render";
 
-    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg, AuditLog audit)
+    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg, AuditLog audit, string? reportEmail = null)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
-        app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo));
+        app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo, reportEmail));
         app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, repo, hash));
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
@@ -200,6 +200,18 @@ public static class Pages
             }
             return Results.Redirect("/");
         });
+
+        // Operator takedown: remove any world with the master token (a Bearer API, no cookie/CSRF). (#35)
+        app.MapPost("/admin/repos/{repo}/remove", (string repo, HttpContext ctx) =>
+        {
+            (_, bool admin, _) = Auth.Identify(ctx.Request, cfg, db, out _);
+            if (!admin) return Results.Text("master token required", statusCode: 403);
+            if (!store.Exists(repo)) return Results.NotFound();
+            audit.Append("operator", "world.takedown", repo, "removed by operator", "admin", ctx.Connection.RemoteIpAddress?.ToString());
+            db.DeleteRepo(repo);
+            PurgeRepoStorage(repo, store, cache, maps);
+            return Results.Ok();
+        });
     }
 
     /// <summary>Remove a repo's on-disk bytes: the bare repo + its materialized-world and map caches.</summary>
@@ -317,7 +329,7 @@ public static class Pages
         return Page("Worlds", b.ToString(), chip);
     }
 
-    private static IResult Repo(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
+    private static IResult Repo(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string? reportEmail)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
@@ -347,6 +359,8 @@ public static class Pages
             b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
             b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/delete" data-confirm="Permanently delete the world “{E(name)}” and all its backups? This cannot be undone.">{Auth.CsrfField(ctx)}<button>Delete world</button></form>""");
         }
+        else if (reportEmail is { Length: > 0 }) // a non-owner viewing someone else's world (#35)
+            b.Append($"""<p class="actions meta"><a href="mailto:{E(reportEmail)}?subject={E($"Report: {name}")}">⚑ Report this world</a></p>""");
 
         b.Append("<h2>Branches</h2><ul class=\"branches\">");
         foreach (string br in repo.Branches())

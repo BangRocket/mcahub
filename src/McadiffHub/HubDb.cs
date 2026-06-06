@@ -37,7 +37,7 @@ public sealed class HubDb
             int i = _db.Users.FindIndex(u => u.Id == id);
             HubUser? prev = i >= 0 ? _db.Users[i] : null;
             // preserve the session epoch + Minecraft identity across logins (don't reset "sign out everywhere")
-            var user = new HubUser(id, login, name, avatar, prev?.CreatedAt ?? Now(), prev?.Epoch ?? 0, prev?.McUuid, prev?.McUsername);
+            var user = new HubUser(id, login, name, avatar, prev?.CreatedAt ?? Now(), prev?.Epoch ?? 0, prev?.McUuid, prev?.McUsername, prev?.Suspended ?? false);
             if (i >= 0) _db.Users[i] = user; else _db.Users.Add(user);
             Save();
             return user;
@@ -52,6 +52,18 @@ public sealed class HubDb
             int i = _db.Users.FindIndex(u => u.Id == userId);
             if (i < 0) return;
             _db.Users[i] = _db.Users[i] with { McUuid = uuid, McUsername = username };
+            Save();
+        }
+    }
+
+    /// <summary>Suspend or un-suspend a user — a non-destructive penalty enforced in Can{Read,Write} (#35).</summary>
+    public void SetSuspended(string userId, bool suspended)
+    {
+        lock (_lock)
+        {
+            int i = _db.Users.FindIndex(u => u.Id == userId);
+            if (i < 0) return;
+            _db.Users[i] = _db.Users[i] with { Suspended = suspended };
             Save();
         }
     }
@@ -425,7 +437,8 @@ public sealed class HubDb
 }
 
 public sealed record HubUser(string Id, string Login, string Name, string Avatar, string CreatedAt, int Epoch = 0,
-    string? McUuid = null, string? McUsername = null); // verified Minecraft Java identity (#37), null for other providers
+    string? McUuid = null, string? McUsername = null, // verified Minecraft Java identity (#37), null for other providers
+    bool Suspended = false);                          // operator lockout — a non-destructive penalty (#35)
 public sealed record HubRepoMeta(string Name, string OwnerId, bool Private, string CreatedAt);
 public sealed record TokenInfo(string Prefix, string Label, string CreatedAt, string? LastUsedAt, string Scope = "write", string? ExpiresAt = null);
 public sealed record TokenAuth(string UserId, string Scope); // resolved Bearer token: who + what it can do

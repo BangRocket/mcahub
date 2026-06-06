@@ -144,7 +144,8 @@ Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback �
 bool adoptUnowned = (app.Configuration["AdoptUnowned"] ?? Environment.GetEnvironmentVariable("MCAHUB_ADOPT_UNOWNED")) is "1" or "true"; // claim-on-first-push of pre-existing unowned repos (#6); default off
 bool defaultPrivate = (app.Configuration["DefaultPrivate"] ?? Environment.GetEnvironmentVariable("MCAHUB_DEFAULT_PRIVATE")) is not ("0" or "false"); // new worlds private until published (#34); default on
 Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate); // mcadiff clone/fetch/push under /r/{repo}/…
-Pages.MapPages(app, store, cache, maps, db, auth, audit); // the web UI (browse + compare + world-state + map + account)
+string? reportEmail = app.Configuration["ReportEmail"] ?? Environment.GetEnvironmentVariable("MCAHUB_REPORT_EMAIL"); // abuse-report address (#35)
+Pages.MapPages(app, store, cache, maps, db, auth, audit, reportEmail); // the web UI (browse + compare + world-state + map + account)
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({string.Join("/", auth.Providers.Select(p => p.Name))} OAuth)" : "accounts (dev login)")
     : !auth.HasMaster ? "open push" : "token-gated push";

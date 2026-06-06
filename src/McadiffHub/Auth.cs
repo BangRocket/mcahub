@@ -349,6 +349,7 @@ public static class Auth
     public static bool CanRead(Config cfg, HubDb db, string repo, string? viewerId, bool admin)
     {
         if (!cfg.Accounts) return true;                    // open / shared-token modes: everything public
+        if (IsSuspended(db, viewerId)) return false;       // a suspended user is locked out, even of public worlds (#35)
         HubRepoMeta? m = db.GetRepo(repo);
         if (m is null || !m.Private) return true;          // public, or legacy/unowned
         return admin || db.RoleOf(repo, viewerId) is not null; // owner, or any collaborator
@@ -359,10 +360,13 @@ public static class Auth
         if (admin) return true;
         if (!cfg.Accounts) return true;                    // transport's master-token gate covers token mode
         if (writerId is null) return false;                // accounts mode requires an authenticated PAT
+        if (IsSuspended(db, writerId)) return false;       // suspended (#35)
         HubRepoMeta? m = db.GetRepo(repo);
         if (m is null) return true;                        // unowned → claimable on push
         return Rank(db.RoleOf(repo, writerId)) >= 2;       // write, maintain, admin, owner can push
     }
+
+    private static bool IsSuspended(HubDb db, string? userId) => userId is not null && db.GetUser(userId)?.Suspended == true;
 
     /// <summary>Whether the viewer may see sensitive explorer data (player coords/health, sign text,
     /// inventory). Open/token mode is a trusted LAN, so everyone may; in accounts mode only the owner +
