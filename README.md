@@ -132,10 +132,10 @@ overwrite it — back it up and upgrade.
 On **SIGTERM** (a deploy, `docker stop`, systemd) the hub **drains** — it stops accepting new connections
 and lets in-flight requests finish (up to the render deadline) instead of guillotining a render. Map
 renders and world materializations are **idempotent and resumable**: both caches are keyed by the
-immutable backup commit, so a killed render just re-runs on the next view and the cache fills. **Run a
-single instance** per data directory for now — the JSON account store isn't yet safe for two processes
-sharing one `hub.json` (multi-instance store locking is tracked separately); scale vertically or use a
-single active instance behind your proxy.
+immutable backup commit, so a killed render just re-runs on the next view and the cache fills. **Two
+instances may share one data directory** (e.g. for a zero-downtime rolling deploy): the account store
+takes a cross-process file lock and reloads before each write, so neither instance clobbers the other's
+changes, and a revoked token / changed grant on one is seen by the other on its next read.
 
 ### Auth modes
 
