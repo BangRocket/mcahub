@@ -25,7 +25,7 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
 | **World data** | push → `ObjectStore` → `Checkout.Materialize` → `MapRenderer`/`WorldQuery` | compressed chunk NBT, manifests, file paths | core `SafeInflate` / `NbtDepthGuard` / `PathGuard.Confine`; `BlockStateDecoder` bounds |
 | **Web — session** | OAuth `/auth/*`, cookie | OAuth callback, `returnUrl` | framework cookie+OAuth (PKCE+state); `Auth.Local` open-redirect guard |
 | **Web — age gate** | `POST /auth/age-gate` | age-confirmation form | antiforgery token; bounces un-confirmed users off all pages when `MCAHUB_MIN_AGE_GATE=1`; ack written to `hub.json` |
-| **Web — actions** | state-changing `POST`s | form fields | **antiforgery token** (`Auth.CsrfOk`) + `SameSite=Lax` + capability checks |
+| **Web — actions** | state-changing `POST`s (tokens: create/revoke/regenerate, sign-out-everywhere; visibility `/settings`; `/collaborators` ±; `/transfer`; `/delete`; teams + team-grants ±) | form fields | **antiforgery token** (`Auth.CsrfOk`) + `SameSite=Lax` + a capability gate per action (`CanManageSettings` for visibility, `CanManagePeople` for collaborators/teams, **owner-only** for transfer/delete, self for account/token actions). `/auth/logout` is a CSRF-unprotected `GET` (low-impact). |
 | **Erasure — user** | `POST /account/delete` | typed confirmation | antiforgery token; must be the current user; `HubDb.DeleteUser` erases identity, tokens, grants, owned teams + world metadata; on-disk repos/caches purged |
 | **Erasure — world** | `POST /r/{repo}/delete` | typed confirmation, repo name | antiforgery token; owner or admin; `HubDb.DeleteRepo` + `PurgeRepoStorage` (bare repo + world + map caches) |
 | **Operator takedown** | `POST /admin/repos/{repo}/remove` | repo name | master token (Bearer, no CSRF — intentionally outside cookie path); returns 403 if not admin; audited |
@@ -40,7 +40,7 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
   open-redirect guard `Local`.
 - **`src/McadiffHub/Transport.cs`** — the network protocol. Every GET checks `Readable`; every write goes
   through `Write` (auth + `CanWrite` + auto-create + **ownership claim-on-first-push**).
-- **`src/McadiffHub/HubDb.cs`** — the account store. **Token hashing** (`mcahub_` + 30 random bytes, stored
+- **`src/McadiffHub/HubDb.cs`** — the account store. **Token hashing** (`mcahub_` + a 40-char base64url string from 30 random bytes, stored
   SHA-256, plaintext shown once, looked up by hash), role/rank resolution, collaborators + teams.
 - **`src/McadiffHub/RepoStore.cs`** — `IsValidName` regex (the path-traversal guard for repo names) and
   `PathOf`.
@@ -56,7 +56,7 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
 
 - **Repo names** are validated `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` before any path is built — no `/`, can't
   escape the data dir.
-- **Tokens** are never stored in the clear: SHA-256 of `mcahub_<30 random bytes>`, shown once, resolved by
+- **Tokens** are never stored in the clear: SHA-256 of `mcahub_<40-char base64url>` (30 random bytes, base64url-encoded), shown once, resolved by
   hash. Each carries a **scope** (`read`/`write`, enforced on the transport) and an optional **expiry**
   (rejected once past), can be **regenerated**, and **"sign out everywhere"** revokes all of a user's
   tokens and bumps a per-user **epoch** that invalidates every existing web session. The master/admin
