@@ -112,6 +112,9 @@ internal static class Accounts
         return await c.SendAsync(req);
     }
 
+    /// <summary>Read the antiforgery token out of a page (for CSRF tests).</summary>
+    public static async Task<string> CsrfTokenAsync(HttpClient c, string url) => Csrf(await GetStringAsync(c, url));
+
     private static async Task<string> GetStringAsync(HttpClient c, string url) =>
         await (await c.GetAsync(url)).Content.ReadAsStringAsync();
 
