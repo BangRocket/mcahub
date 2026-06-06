@@ -18,6 +18,7 @@ public static class Pages
     public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, HubDb db, Auth.Config cfg, AuditLog audit, string? reportEmail = null)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
+        app.MapGet("/aup", (HttpContext ctx) => Aup(ctx, cfg, reportEmail));
         app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo, reportEmail));
         app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, repo, hash));
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
@@ -220,6 +221,35 @@ public static class Pages
         store.Delete(repo);
         cache.Drop(repo);
         maps.Drop(repo);
+    }
+
+    /// <summary>The acceptable-use policy — the agreement that gives the operator a basis for takedown (#35).</summary>
+    private static IResult Aup(HttpContext ctx, Auth.Config cfg, string? reportEmail)
+    {
+        string report = reportEmail is { Length: > 0 }
+            ? $"""Report abuse to <a href="mailto:{E(reportEmail)}">{E(reportEmail)}</a>."""
+            : "Report abuse to the operator of this hub.";
+        return Page("Acceptable Use Policy", $$"""
+            <h1>Acceptable Use Policy</h1>
+            <p class="meta">By signing in and using this hub you agree to the following.</p>
+            <h2>You will not</h2>
+            <ul class="branches">
+              <li>upload content that is illegal, infringing, or that you don't have the right to share;</li>
+              <li>harass, threaten, or expose the private information (doxx) of any person;</li>
+              <li>upload malware, or use a world's data to attack, locate, or grief other players;</li>
+              <li>abuse the service — automated flooding, evading limits or suspensions, or attempting to
+                  access worlds that aren't yours.</li>
+            </ul>
+            <h2>The operator may</h2>
+            <ul class="branches">
+              <li>remove any world and suspend or delete any account that violates this policy or the law;</li>
+              <li>act on abuse reports and preserve an audit trail of administrative actions.</li>
+            </ul>
+            <h2>Your data</h2>
+            <p>You can delete your account and the worlds you own at any time from your account page. The
+            service is provided as-is, without warranty.</p>
+            <p class="meta">{{report}}</p>
+            """, Auth.HeaderRight(ctx, cfg));
     }
 
     private static IResult BadCsrf() => Results.Text("Invalid or expired form token — go back, reload the page, and retry.", statusCode: 400);

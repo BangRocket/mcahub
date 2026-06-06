@@ -109,6 +109,12 @@ public sealed class HubDb
         }
     }
 
+    /// <summary>How many worlds a user owns — for the per-user governance quota (#35).</summary>
+    public int OwnedRepoCount(string userId)
+    {
+        lock (_lock) return _db.Repos.Count(r => r.OwnerId == userId);
+    }
+
     /// <summary>Forget a repo's metadata + all its grants (the on-disk repo is deleted separately).</summary>
     public void DeleteRepo(string name)
     {
