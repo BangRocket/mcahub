@@ -26,10 +26,12 @@ If mcadiff is git for worlds, this is the hub you push them to.
 
 ## Run it
 
-Needs the **.NET 10 SDK** and the `mcadiff` repo checked out as a sibling directory (the project
-references `../mca-git/src/McaDiff`).
+Needs the **.NET 10 SDK**. The `mcadiff` core is vendored as a git submodule at `./mca-git` — clone
+with `--recurse-submodules` (or run `git submodule update --init` afterward) or the build fails with
+CS0246 errors for `Repository`, `RemoteService`, etc.
 
 ```sh
+git clone --recurse-submodules https://github.com/<you>/mcahub
 dotnet run --project src/McadiffHub          # serves http://localhost:5080
 ```
 
@@ -205,7 +207,7 @@ public/private worlds, collaborators, teams). Natural next steps (some shared wi
 - Map thumbnails on the backup timeline, and a focusable region/coordinate jump in the map.
 - Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
 - One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
-- Package the mcadiff core as a proper library so the reference isn't a sibling-path coupling.
+- Package the mcadiff core as a proper NuGet library so the reference isn't a submodule coupling.
 
 ## License
 

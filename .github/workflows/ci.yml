@@ -9,17 +9,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out hub
+      - name: Check out hub (with mcadiff submodule)
         uses: actions/checkout@v6
         with:
           path: mcahub
-
-      - name: Check out mcadiff core (pinned)
-        uses: actions/checkout@v6
-        with:
-          repository: BangRocket/mcadiff
-          ref: 41f6f2fd2b4d7f2bef935646ae8a7763526e4d6d
-          path: mca-git
+          submodules: recursive
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v5
@@ -38,7 +32,7 @@ jobs:
         working-directory: mcahub
         run: dotnet test McadiffHub.slnx --configuration Release --no-build
 
-      # The hub ships the core's transitive NuGet deps (fNbt, LZ4, …) via the sibling ProjectReference,
+      # The hub ships the core's transitive NuGet deps (fNbt, LZ4, …) via the submodule ProjectReference,
       # which the repo's own Dependabot never sees. Scan the graph we actually ship and fail on a known CVE.
       - name: Scan shipped dependencies for vulnerabilities
         working-directory: mcahub

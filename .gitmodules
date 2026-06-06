@@ -1,0 +1,3 @@
+[submodule "mca-git"]
+	path = mca-git
+	url = https://github.com/BangRocket/mcadiff

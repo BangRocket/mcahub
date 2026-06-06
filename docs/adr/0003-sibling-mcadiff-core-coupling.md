@@ -1,6 +1,6 @@
 # ADR-0003: Reference the mcadiff core as a sibling project
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0006](0006-mcadiff-submodule.md)
 - **Date:** 2026-06-05
 
 ## Context

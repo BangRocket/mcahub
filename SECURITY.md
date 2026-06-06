@@ -11,7 +11,7 @@ on secrecy; assume an attacker has read this file.
 
 ## Run it locally
 
-See the README to build/run (.NET 10, needs the `mcadiff` core checked out as a sibling). For poking at the
+See the README to build/run (.NET 10, needs the `mcadiff` core fetched as a git submodule at `./mca-git`). For poking at the
 account/permission logic without a real OAuth app, set `MCAHUB_DEV_LOGIN=1` and sign in at `/auth/dev`
 (insecure local login — there's a warning on it; it must never be enabled on a real host). The three auth
 modes (open / shared-token / OAuth accounts) are described in the README under "Auth modes".
@@ -124,15 +124,16 @@ Honest list of the thinner spots — these are the bugs I'd expect a review to f
 
 ## Supply chain
 
-The hub references the core via a **sibling `ProjectReference`** (`../mca-git/...`), so it ships the core's
+The hub references the core via a **submodule `ProjectReference`** (`./mca-git/...`), so it ships the core's
 transitive NuGet deps (`fNbt`, `K4os.Compression.LZ4`, and the cloud SDKs the core carries) — which the
 hub's own Dependabot doesn't see, since the hub declares no direct runtime packages. CI compensates by
-running `dotnet list package --vulnerable --include-transitive` over the **shipped graph** (with the core
-checked out) and **failing on a known CVE** — `fNbt` in particular sits directly on attacker-controlled
-bytes (anonymous push → render). The intended end state (cross-repo) is to publish the core as a
-**versioned NuGet** and replace the sibling reference with a **pinned `PackageReference`**, so Dependabot
-tracks the transitive graph and the unused cloud SDKs can be trimmed. CI pins the core to a known commit
-(`41f6f2f`) until then.
+running `dotnet list package --vulnerable --include-transitive` over the **shipped graph** (with the
+submodule checked out) and **failing on a known CVE** — `fNbt` in particular sits directly on
+attacker-controlled bytes (anonymous push → render). The intended end state (cross-repo) is to publish
+the core as a **versioned NuGet** and replace the submodule reference with a **pinned `PackageReference`**,
+so Dependabot tracks the transitive graph and the unused cloud SDKs can be trimmed. The submodule gitlink
+itself pins the core to a specific commit, so upstream mcadiff cannot move the dependency under us between
+bumps.
 
 ## Reporting
 

@@ -8,14 +8,14 @@ A self-hostable "GitHub for Minecraft worlds": hosts [`mcadiff`](https://github.
 world repositories over HTTP (clone/fetch/push) and serves a server-rendered web UI for browsing backup
 timelines, semantic diffs, grief forensics, rendered maps, and a world explorer.
 
-## Hard dependency: sibling mcadiff checkout
+## Hard dependency: mcadiff submodule
 
-The single project references the mcadiff core **in-process** via a sibling-path project reference:
-`src/McadiffHub/McadiffHub.csproj` → `..\..\..\mca-git\src\McaDiff\McaDiff.csproj`. The mcadiff repo
-**must be checked out as a sibling directory named `mca-git`** (i.e. `../mca-git` relative to this repo
-root) or the build fails with CS0246 errors (`Repository`, `RemoteService`, etc. not found). If the
-sibling exists under a different name, the build cannot succeed until it's renamed/cloned to `mca-git`
-(or the ProjectReference path is adjusted locally — don't commit that change).
+The single project references the mcadiff core **in-process** via a git submodule at `./mca-git`:
+`src/McadiffHub/McadiffHub.csproj` → `..\..\mca-git\src\McaDiff\McaDiff.csproj`. A plain
+`git clone` of this repo leaves the submodule empty and the build fails with CS0246 errors
+(`Repository`, `RemoteService`, etc. not found). Clone with `--recurse-submodules`, or run
+`git submodule update --init` after cloning. To pull upstream mcadiff changes later:
+`git submodule update --remote mca-git`.
 
 Types like `Repository`, `RemoteService`, `RepoDiffer`, `GriefReport`, `WorldQuery`, `Checkout`,
 `BlockStateDecoder` all come from that core project.
