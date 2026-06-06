@@ -299,17 +299,19 @@ public static class Auth
     /// the hashed form keeps the plaintext out of the environment at rest.</summary>
     public static bool IsMasterToken(Config cfg, string presented)
     {
-        if (cfg.MasterPlaintext is { } pt &&
-            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(pt)))
-            return true;
-        if (cfg.MasterHashes.Count == 0) return false;
+        // Hash the presented token once and compare hashes throughout. FixedTimeEquals is constant-time only
+        // across equal-length inputs; comparing raw plaintext bytes leaked the token length via the fast-path
+        // on unequal lengths. Hashing first makes every compare 32 bytes — no length oracle. (audit LOW)
         byte[] presentedHash = SHA256.HashData(Encoding.UTF8.GetBytes(presented));
         bool match = false;
+        if (cfg.MasterPlaintext is { } pt
+            && CryptographicOperations.FixedTimeEquals(presentedHash, SHA256.HashData(Encoding.UTF8.GetBytes(pt))))
+            match = true; // don't early-return: keep timing independent of which secret matched
         foreach (string hex in cfg.MasterHashes)
         {
             byte[]? configured = TryHex(hex);
             if (configured is { Length: 32 } && CryptographicOperations.FixedTimeEquals(presentedHash, configured))
-                match = true; // don't early-return: keep the comparison count independent of which hash matched
+                match = true;
         }
         return match;
     }
@@ -374,16 +376,18 @@ public static class Auth
     public static bool CanSeePlayerData(Config cfg, HubDb db, string repo, string? viewerId, bool admin) =>
         !cfg.Accounts || admin || db.RoleOf(repo, viewerId) is not null;
 
-    /// <summary>Change repo settings (visibility): maintain and up.</summary>
-    public static bool CanManageSettings(HubDb db, string repo, string? userId) => Rank(db.RoleOf(repo, userId)) >= 3;
+    /// <summary>Change repo settings (visibility): maintain and up, and not suspended.</summary>
+    public static bool CanManageSettings(HubDb db, string repo, string? userId) =>
+        !IsSuspended(db, userId) && Rank(db.RoleOf(repo, userId)) >= 3;
 
-    /// <summary>Manage collaborators and team grants: admin and up (the owner is admin's superior).</summary>
-    public static bool CanManagePeople(HubDb db, string repo, string? userId) => Rank(db.RoleOf(repo, userId)) >= 4;
+    /// <summary>Manage collaborators and team grants: admin and up (the owner is admin's superior), not suspended.</summary>
+    public static bool CanManagePeople(HubDb db, string repo, string? userId) =>
+        !IsSuspended(db, userId) && Rank(db.RoleOf(repo, userId)) >= 4;
 
-    /// <summary>May the caller grant <paramref name="role"/>? Only someone of strictly higher rank may — so an
-    /// admin can grant up to maintain but cannot mint another admin; only the owner grants admin. (audit MED-4)</summary>
+    /// <summary>May the caller grant <paramref name="role"/>? Only a non-suspended user of strictly higher rank —
+    /// so an admin can grant up to maintain but cannot mint another admin; only the owner grants admin. (audit MED-4)</summary>
     public static bool CanGrantRole(HubDb db, string repo, string? granterId, string role) =>
-        Rank(db.RoleOf(repo, granterId)) > Rank(role);
+        !IsSuspended(db, granterId) && Rank(db.RoleOf(repo, granterId)) > Rank(role);
 
     // ---- helpers ----
 

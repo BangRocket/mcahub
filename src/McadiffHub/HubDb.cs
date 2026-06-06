@@ -66,7 +66,9 @@ public sealed class HubDb
         }
     }
 
-    /// <summary>Suspend or un-suspend a user — a non-destructive penalty enforced in Can{Read,Write} (#35).</summary>
+    /// <summary>Suspend or un-suspend a user — a non-destructive penalty enforced across the capability checks
+    /// (read/write/manage/grant). Suspending also revokes the user's PATs and bumps their epoch, so the lockout
+    /// takes effect immediately on existing tokens and live web sessions, not just on new requests. (#35, audit)</summary>
     public void SetSuspended(string userId, bool suspended)
     {
         lock (_lock)
@@ -76,6 +78,7 @@ public sealed class HubDb
             _db.Users[i] = _db.Users[i] with { Suspended = suspended };
             Save();
         }
+        if (suspended) { RevokeAllTokens(userId); BumpEpoch(userId); } // CLI tokens dead + every session invalidated now
     }
 
     /// <summary>Record that a user confirmed the age gate (#35).</summary>
