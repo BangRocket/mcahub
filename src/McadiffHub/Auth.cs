@@ -380,6 +380,11 @@ public static class Auth
     /// <summary>Manage collaborators and team grants: admin and up (the owner is admin's superior).</summary>
     public static bool CanManagePeople(HubDb db, string repo, string? userId) => Rank(db.RoleOf(repo, userId)) >= 4;
 
+    /// <summary>May the caller grant <paramref name="role"/>? Only someone of strictly higher rank may — so an
+    /// admin can grant up to maintain but cannot mint another admin; only the owner grants admin. (audit MED-4)</summary>
+    public static bool CanGrantRole(HubDb db, string repo, string? granterId, string role) =>
+        Rank(db.RoleOf(repo, granterId)) > Rank(role);
+
     // ---- helpers ----
 
     private static Claim[] Claims(HubUser u) =>
