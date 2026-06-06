@@ -14,8 +14,9 @@ namespace McadiffHub;
 public static class Transport
 {
     private const string SystemOwner = "__system__"; // owner stamped on master-token pushes so they aren't orphan-claimable
+    private static readonly HttpClient DiscordHttp = new() { Timeout = TimeSpan.FromSeconds(5) }; // bounded grief-webhook POST (#25)
 
-    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle, bool adoptUnowned, AuditLog audit, bool defaultPrivate, int maxWorldsPerUser)
+    public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody, AuthThrottle throttle, bool adoptUnowned, AuditLog audit, bool defaultPrivate, int maxWorldsPerUser, string? discordWebhook = null)
     {
         // Advertise refs. A valid-but-not-yet-created name advertises an empty remote, so a first
         // `push` to it succeeds and auto-creates the world (hub convenience).
@@ -65,6 +66,10 @@ public static class Transport
                 RefUpdate u = await req.ReadFromJsonAsync<RefUpdate>(HttpProtocol.Json) ?? new RefUpdate();
                 s.UpdateRef(branch, u.Old, u.New, u.Force);
                 audit.Append(actor, "ref.update", repo, $"{branch} {Sh(u.Old)}→{Sh(u.New)}", "cli", Ip(ctx));
+                // Grief alert to Discord (#25), best-effort + timeout-bounded so it never fails the push.
+                if (u.New is { Length: > 0 })
+                    await DiscordWebhook.NotifyPushAsync(discordWebhook, s.Repo, repo, $"{ctx.Request.Scheme}://{ctx.Request.Host}/r/{repo}",
+                        u.Old, u.New, actor, DiscordHttp, ctx.RequestAborted);
             }));
     }
 

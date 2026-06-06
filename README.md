@@ -178,6 +178,9 @@ sign-in page shows a button per enabled provider. Identities are namespaced (`gi
 | `MCAHUB_REPORT_EMAIL` | — | Abuse-report address. When set, non-owners see a **"Report this world"** link on each world's page. The operator can take a world down with the master token: `curl -X POST -H "Authorization: Bearer <MCAHUB_TOKEN>" https://<host>/admin/repos/<name>/remove`. (A user can also be suspended — a non-destructive lockout from read/write.) |
 | `MCAHUB_MIN_AGE_GATE` | (off) | Require a **13+/parental-consent** confirmation on first sign-in before any page works (logged). Off by default for school/LAN self-hosts; **turn it on for a public launch** (Minecraft skews young). |
 | `MCAHUB_MAX_WORLDS_PER_USER` | `0` (∞) | Fair-use cap on how many worlds one account may own (a new push past it gets 403). `0` = unlimited. Distinct from the per-IP/size DoS limits above — this is governance, to stop one user flooding the home page. |
+| `MCAHUB_DISCORD_WEBHOOK` | — | A `discord.com` webhook URL that gets a grief-summary embed (with the map link) on every push. Validated to a real Discord webhook so a typo can't make the push path an SSRF gadget. |
+
+A public world's pages carry **OpenGraph/Twitter** meta so a pasted link unfurls into its map, and **`/r/<name>/embed`** is a chrome-less, iframe-embeddable map for forums/wikis.
 
 Every page links the built-in **Acceptable Use Policy** (`/aup`) — the agreement that gives the operator a basis for takedown.
 
