@@ -37,6 +37,9 @@ int renderConcurrency = (int)(ParsePositiveLong(builder.Configuration["MaxRender
 int maxRenderChunks = (int)(ParsePositiveLong(builder.Configuration["MaxRenderChunks"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_RENDER_CHUNKS")) ?? 10_000);
 TimeSpan renderTimeout = TimeSpan.FromSeconds(ParsePositiveLong(builder.Configuration["RenderTimeoutSeconds"] ?? Environment.GetEnvironmentVariable("MCAHUB_RENDER_TIMEOUT_SECONDS")) ?? 30);
 builder.Services.AddRequestTimeouts(o => o.AddPolicy(Pages.RenderTimeoutPolicy, renderTimeout));
+// Graceful drain on SIGTERM (#41): stop accepting connections and let in-flight requests finish — a deploy
+// drains instead of guillotining a render. Give it a hair over the render deadline so a render can complete.
+builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = renderTimeout + TimeSpan.FromSeconds(5));
 builder.Services.AddHsts(o => { o.MaxAge = TimeSpan.FromDays(365); o.IncludeSubDomains = true; }); // emitted only on HTTPS
 
 // Per-IP rate limits per surface (fixed 1-minute windows). Behind a proxy, RemoteIpAddress is accurate
