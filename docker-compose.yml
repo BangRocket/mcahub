@@ -1,0 +1,27 @@
+# One-command self-host: `docker compose up`.
+#   - Build locally (needs the submodule: `git submodule update --init --recursive` first), or
+#   - swap `build: .` for `image: ghcr.io/bangrocket/mcahub:latest` to pull the published image.
+#
+# ⚠ DEFAULTS TO OPEN MODE: anyone who can reach the port can read AND push worlds. Fine for a trusted
+# LAN. Before exposing this publicly, set MCAHUB_TOKEN (token-gated writes) or the MCAHUB_OAUTH_* vars
+# (full accounts), and drop the MCAHUB_I_KNOW_OPEN_MODE_IS_PUBLIC acknowledgement below.
+services:
+  mcahub:
+    build: .
+    # image: ghcr.io/bangrocket/mcahub:latest
+    ports:
+      - "5080:5080"
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:5080
+      MCAHUB_I_KNOW_OPEN_MODE_IS_PUBLIC: "1"   # remove once you set a token or OAuth (see warning above)
+      # MCAHUB_TOKEN: "change-me"               # token-gated writes
+      # MCAHUB_OAUTH_GITHUB_CLIENT_ID: ""       # …or full accounts mode
+      # MCAHUB_OAUTH_GITHUB_CLIENT_SECRET: ""
+    volumes:
+      - mcahub-data:/data
+    restart: unless-stopped
+    read_only: true            # only /data (the volume) and /tmp are writable
+    tmpfs:
+      - /tmp
+volumes:
+  mcahub-data:

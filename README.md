@@ -26,6 +26,22 @@ If mcadiff is git for worlds, this is the hub you push them to.
 
 ## Run it
 
+### Docker (no SDK)
+
+The quickest way — no .NET SDK, no submodule checkout:
+
+```sh
+docker compose up          # serves http://localhost:5080
+```
+
+(or pull the published image directly: `docker run -p 5080:5080 -v mcahub:/data ghcr.io/bangrocket/mcahub`).
+It runs as a non-root user with a read-only root filesystem and your data on a named volume.
+**`docker compose` defaults to open mode** (anyone reachable can read **and** push) — fine for a trusted
+LAN; set `MCAHUB_TOKEN` or the `MCAHUB_OAUTH_*` vars before exposing it publicly (see the compose file).
+Building the image locally needs the submodule: `git submodule update --init --recursive` first.
+
+### From source
+
 Needs the **.NET 10 SDK**. The `mcadiff` core is vendored as a git submodule at `./mca-git` — clone
 with `--recurse-submodules` (or run `git submodule update --init` afterward) or the build fails with
 ~40 **`CS0246`** type-not-found errors (`Repository`, `RemoteService`, …). The real cause is the
@@ -36,6 +52,8 @@ you cloned without the submodule — run `git submodule update --init --recursiv
 git clone --recurse-submodules https://github.com/<you>/mcahub
 dotnet run --project src/McadiffHub          # serves http://localhost:5080
 ```
+
+A self-contained binary for your OS (no SDK needed) is attached to each [GitHub Release](../../releases).
 
 Then point a client at it:
 
