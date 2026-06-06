@@ -140,6 +140,9 @@ app.Use(async (ctx, next) =>                   // bad-token lockout: refuse a lo
 if (auth.Accounts)
     app.UseAuthentication();                  // populates ctx.User from the session cookie (access checks are our own)
 
+bool ageGate = (app.Configuration["MinAgeGate"] ?? Environment.GetEnvironmentVariable("MCAHUB_MIN_AGE_GATE")) is "1" or "true"; // COPPA age gate (#35); default off
+if (auth.Accounts && ageGate) AgeGate.Map(app, db, audit); // bounce un-confirmed users to /auth/age-gate
+
 Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback · /auth/logout · /auth/dev
 bool adoptUnowned = (app.Configuration["AdoptUnowned"] ?? Environment.GetEnvironmentVariable("MCAHUB_ADOPT_UNOWNED")) is "1" or "true"; // claim-on-first-push of pre-existing unowned repos (#6); default off
 bool defaultPrivate = (app.Configuration["DefaultPrivate"] ?? Environment.GetEnvironmentVariable("MCAHUB_DEFAULT_PRIVATE")) is not ("0" or "false"); // new worlds private until published (#34); default on
