@@ -63,8 +63,12 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
   transport, the web pages, *and* which controls render — they can't drift.
 - **CSRF:** every cookie-authenticated state-changing POST validates an antiforgery token; the Bearer-only
   transport POSTs are intentionally *not* in that path, so the CLI still works.
-- **OAuth** uses the framework's handlers with PKCE + state; identities are namespaced by provider so two
-  providers can't collide. `returnUrl` is restricted to local paths.
+- **OAuth** uses the framework's handlers with PKCE + state on every provider; identities are namespaced
+  by provider (`github:`/`microsoft:`/`minecraft:<uuid>`/`discord:`) so they can't collide, and the
+  immutable `sub`/`id`/`uuid` — never a provider-supplied login/email — is the join key. `returnUrl` is
+  restricted to local paths across all providers. The Minecraft sign-in runs the Xbox→XSTS→MC chain in
+  `OnCreatingTicket`; the intermediate Xbox/XSTS/MC tokens are used transiently and never persisted or
+  logged — only the resulting `minecraft:<uuid>` identity + username live in `hub.json`.
 - **Response headers + cookies:** every response carries a strict CSP (`script-src 'self'` — all client JS
   is the static `/app.js`, with per-request scrubber data in a JSON data-island), `X-Frame-Options`,
   `X-Content-Type-Options`, `Referrer-Policy`, and HSTS over HTTPS; session + antiforgery cookies are

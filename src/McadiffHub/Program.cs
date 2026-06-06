@@ -146,7 +146,7 @@ bool defaultPrivate = (app.Configuration["DefaultPrivate"] ?? Environment.GetEnv
 Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate); // mcadiff clone/fetch/push under /r/{repo}/…
 Pages.MapPages(app, store, cache, maps, db, auth, audit); // the web UI (browse + compare + world-state + map + account)
 
-string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({auth.Provider} OAuth)" : "accounts (dev login)")
+string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({string.Join("/", auth.Providers.Select(p => p.Name))} OAuth)" : "accounts (dev login)")
     : !auth.HasMaster ? "open push" : "token-gated push";
 app.Logger.LogInformation("mcadiff-hub serving worlds from {DataDir} · auth: {Mode}", Path.GetFullPath(dataDir), mode);
 
