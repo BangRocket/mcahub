@@ -30,8 +30,8 @@ dotnet run --project src/McadiffHub -- render <worldDir> <out.png>   # offline m
 
 There is **no test project** in this repo (the mcadiff core has its own tests in its repo).
 
-Configuration is entirely env vars (`MCAHUB_DATA`, `MCAHUB_CACHE`, `MCAHUB_DB`, `MCAHUB_TOKEN`,
-`MCAHUB_OAUTH_*`, `MCAHUB_DEV_LOGIN`, `MCAHUB_BEHIND_PROXY`) plus a `.env` file auto-loaded at startup
+Configuration is entirely env vars (`MCAHUB_DATA`, `MCAHUB_CACHE`, `MCAHUB_MAPS`, `MCAHUB_DB`, `MCAHUB_AUDIT`,
+`MCAHUB_TOKEN`, `MCAHUB_OAUTH_*`, `MCAHUB_DEV_LOGIN`, `MCAHUB_BEHIND_PROXY`) plus a `.env` file auto-loaded at startup
 (real env always wins — see `LoadDotEnv` in `Program.cs`). `.env.example` documents them; the README
 has the full table. For exercising accounts locally without an OAuth app: `MCAHUB_DEV_LOGIN=1` then
 sign in at `/auth/dev`.
