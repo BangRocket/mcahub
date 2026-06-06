@@ -28,7 +28,9 @@ If mcadiff is git for worlds, this is the hub you push them to.
 
 Needs the **.NET 10 SDK**. The `mcadiff` core is vendored as a git submodule at `./mca-git` — clone
 with `--recurse-submodules` (or run `git submodule update --init` afterward) or the build fails with
-CS0246 errors for `Repository`, `RemoteService`, etc.
+~40 **`CS0246`** type-not-found errors (`Repository`, `RemoteService`, …). The real cause is the
+**`MSB4019`** warning above them — *"imported project `…/mca-git/…` not found"*; if you see those,
+you cloned without the submodule — run `git submodule update --init --recursive` and rebuild.
 
 ```sh
 git clone --recurse-submodules https://github.com/<you>/mcahub
@@ -170,6 +172,53 @@ Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback`
 Those headers are trusted **only from the proxy** — `MCAHUB_TRUSTED_PROXY` (IP or CIDR, default loopback);
 keep the app port itself unreachable from clients, or a spoofed `X-Forwarded-Host` could hijack the OAuth
 redirect / clone URLs.
+
+## Operating
+
+Running it for real — what to back up, how to upgrade, and how to keep logs from filling the disk.
+
+### Backup and recovery
+
+| State | Path | Durable? |
+|---|---|---|
+| Hosted worlds | `data/repos` (`MCAHUB_DATA`) | **Yes** — the only copy of pushed history |
+| Accounts DB | `data/hub.json` (`MCAHUB_DB`) | **Yes** — users, hashed tokens, ownership, grants |
+| Audit log | `data/audit.jsonl` (`MCAHUB_AUDIT`) | **Yes** (compliance) |
+| World cache | `data/cache` (`MCAHUB_CACHE`) | No — re-materialized on demand |
+| Map cache | `data/maps` (`MCAHUB_MAPS`) | No — re-rendered on demand |
+
+**Back up `data/repos` + `data/hub.json` (+ `data/audit.jsonl`); skip the caches** — they rebuild
+themselves. Both durable stores are **safe to copy while the hub runs**: `hub.json` is written with an
+atomic temp-then-rename (a snapshot is never torn), and `data/repos` holds append-only, atomically-published
+packs, so an `rsync`/filesystem snapshot is crash-consistent. For a *fully* consistent backup (no
+in-flight push mid-pack), **stop the hub first**. A leftover `hub.json.tmp` after a crash is a harmless
+orphan — the live `hub.json` is intact; delete the `.tmp`.
+
+**Restore:** stop the hub, drop the backed-up `data/repos` + `data/hub.json` back in place, start it; the
+caches refill on first view. **Migrate to a new machine:** copy `data/repos`, `data/hub.json`, and your
+`.env`, then update the OAuth app's callback URL to the new host.
+
+### Upgrading
+
+The build tracks the pinned core submodule, so an upgrade is two pulls:
+
+```sh
+# 1. stop the hub   2. back up hub.json
+git pull && git submodule update --init --recursive   # hub + core
+dotnet build src/McadiffHub -c Release                 # rollback: `git checkout <old> && git submodule update`
+# 3. start the hub
+```
+
+If a core change ever breaks the build, roll back by checking out the previous hub commit (which pins the
+previous working `mca-git` commit) and rebuilding. An incompatible `hub.json` from a *newer* build refuses
+to start with an actionable message (see the schema-version guard) rather than corrupting your data.
+
+### Logging
+
+The hub logs to stdout. On a busy host, bound it: under systemd/journald set `journalctl`'s
+`SystemMaxUse=`, or `logrotate` a redirected log file. To silence per-request access logs in production,
+set `Logging__LogLevel__Microsoft.AspNetCore=Warning` (env var). `GET /health` is unauthenticated and
+rate-limit-exempt for liveness probes — don't block it at the proxy.
 
 ## How it works
 
