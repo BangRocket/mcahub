@@ -125,6 +125,29 @@ public sealed class HubDb
         lock (_lock) return _db.Repos.Count(r => r.OwnerId == userId);
     }
 
+    /// <summary>Hand a repo to another existing user (#17). The previous owner is kept on as an admin
+    /// collaborator (so they don't lose access); all other collaborator/team grants are untouched. Returns
+    /// false if the repo or the new owner doesn't exist, or it's a no-op (already the owner).</summary>
+    public bool TransferOwnership(string repo, string newOwnerId)
+    {
+        lock (_lock)
+        {
+            int i = _db.Repos.FindIndex(r => r.Name == repo);
+            if (i < 0 || _db.Users.All(u => u.Id != newOwnerId)) return false;
+            string oldOwner = _db.Repos[i].OwnerId;
+            if (oldOwner == newOwnerId) return false;
+            _db.Repos[i] = _db.Repos[i] with { OwnerId = newOwnerId };
+            _db.Collabs.RemoveAll(c => c.Repo == repo && c.UserId == newOwnerId); // the owner needs no grant
+            if (oldOwner != "__system__") // a master-token/ops-owned repo has no human to demote
+            {
+                _db.Collabs.RemoveAll(c => c.Repo == repo && c.UserId == oldOwner);
+                _db.Collabs.Add(new Collab(repo, oldOwner, "admin")); // keep the ex-owner's access
+            }
+            Save();
+            return true;
+        }
+    }
+
     /// <summary>Forget a repo's metadata + all its grants (the on-disk repo is deleted separately).</summary>
     public void DeleteRepo(string name)
     {

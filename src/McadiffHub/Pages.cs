@@ -124,6 +124,18 @@ public static class Pages
             }
             return Results.Redirect($"/r/{repo}");
         });
+        app.MapPost("/r/{repo}/transfer", async (string repo, HttpContext ctx) => // hand the repo to another user (#17)
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo)?.OwnerId == me.Id) // owner only
+            {
+                HubUser? target = db.UserByLogin((await ctx.Request.ReadFormAsync())["login"].ToString().Trim());
+                if (target is null) return Results.Redirect($"/r/{repo}?err=nouser");
+                if (db.TransferOwnership(repo, target.Id))
+                    Log(ctx, audit, "ownership.transfer", repo, $"→ {target.Login}");
+            }
+            return Results.Redirect($"/r/{repo}");
+        });
 
         // ---- teams ----
         app.MapGet("/teams", (HttpContext ctx) => Teams(ctx, db, cfg));
@@ -387,6 +399,8 @@ public static class Pages
         if (me is not null && Auth.CanManagePeople(db, name, me.Id))
         {
             b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
+            if (m is not null && m.OwnerId == me.Id) // owner-only: hand the world to someone else (#17)
+                b.Append($"""<form class="find" method="post" action="/r/{E(name)}/transfer" data-confirm="Transfer “{E(name)}” to another user? You'll be demoted to admin.">{Auth.CsrfField(ctx)}<input name="login" placeholder="new owner's username"><button>Transfer ownership</button></form>""");
             b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/delete" data-confirm="Permanently delete the world “{E(name)}” and all its backups? This cannot be undone.">{Auth.CsrfField(ctx)}<button>Delete world</button></form>""");
         }
         else if (reportEmail is { Length: > 0 }) // a non-owner viewing someone else's world (#35)
