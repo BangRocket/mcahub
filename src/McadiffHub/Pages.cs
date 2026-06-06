@@ -107,6 +107,7 @@ public static class Pages
                 if (db.GetRepo(repo) is { } m && target.Id != m.OwnerId) // owner outranks any grant
                 {
                     string role = Role(form["role"].ToString());
+                    if (!Auth.CanGrantRole(db, repo, me.Id, role)) return Results.Redirect($"/r/{repo}?err=rank"); // can't grant ≥ your rank (MED-4)
                     db.SetCollab(repo, target.Id, role);
                     Log(ctx, audit, "collaborator.add", repo, $"{target.Login}={role}");
                 }
@@ -182,6 +183,7 @@ public static class Pages
                 string team = form["team"].ToString().Trim();
                 if (db.GetTeam(team) is null) return Results.Redirect($"/r/{repo}?err=noteam");
                 string role = Role(form["role"].ToString());
+                if (!Auth.CanGrantRole(db, repo, me.Id, role)) return Results.Redirect($"/r/{repo}?err=rank"); // can't grant ≥ your rank (MED-4)
                 db.SetTeamGrant(repo, team, role);
                 Log(ctx, audit, "team-grant.add", repo, $"{team}={role}");
             }
@@ -202,10 +204,13 @@ public static class Pages
         // Per-repo audit history, owners/admins only (#16).
         app.MapGet("/r/{repo}/audit", (string repo, HttpContext ctx) => AuditView(ctx, store, db, cfg, audit, repo));
 
-        app.MapPost("/r/{repo}/delete", async (string repo, HttpContext ctx) => // owner/admin deletes a world (#35)
+        app.MapPost("/r/{repo}/delete", async (string repo, HttpContext ctx) => // only the OWNER deletes a world (#35; audit MED-3)
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
-            if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
+            // Deletion is irreversible (PurgeRepoStorage); restrict to the owner. Operators use the
+            // master-token /admin/repos/{repo}/remove takedown — an admin *collaborator* must not be able
+            // to destroy another user's owned world.
+            if (Auth.Current(ctx) is { } me && db.GetRepo(repo)?.OwnerId == me.Id)
             {
                 Log(ctx, audit, "world.delete", repo, "deleted"); // log before the repo is gone
                 db.DeleteRepo(repo);
@@ -399,9 +404,11 @@ public static class Pages
         if (me is not null && Auth.CanManagePeople(db, name, me.Id))
         {
             b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
-            if (m is not null && m.OwnerId == me.Id) // owner-only: hand the world to someone else (#17)
+            if (m is not null && m.OwnerId == me.Id) // owner-only: transfer + the irreversible delete (audit MED-3)
+            {
                 b.Append($"""<form class="find" method="post" action="/r/{E(name)}/transfer" data-confirm="Transfer “{E(name)}” to another user? You'll be demoted to admin.">{Auth.CsrfField(ctx)}<input name="login" placeholder="new owner's username"><button>Transfer ownership</button></form>""");
-            b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/delete" data-confirm="Permanently delete the world “{E(name)}” and all its backups? This cannot be undone.">{Auth.CsrfField(ctx)}<button>Delete world</button></form>""");
+                b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/delete" data-confirm="Permanently delete the world “{E(name)}” and all its backups? This cannot be undone.">{Auth.CsrfField(ctx)}<button>Delete world</button></form>""");
+            }
         }
         else if (reportEmail is { Length: > 0 }) // a non-owner viewing someone else's world (#35)
             b.Append($"""<p class="actions meta"><a href="mailto:{E(reportEmail)}?subject={E($"Report: {name}")}">⚑ Report this world</a></p>""");
@@ -720,6 +727,8 @@ public static class Pages
         b.Append("<h2>Collaborators</h2>");
         if (canPeople && ctx.Request.Query["err"] == "nouser")
             b.Append("""<p class="empty">That user hasn't signed in to the hub yet — they need to sign in once before you can add them.</p>""");
+        if (canPeople && ctx.Request.Query["err"] == "rank")
+            b.Append("""<p class="empty">You can't grant a role at or above your own — only the owner can grant admin.</p>""");
 
         b.Append("<ul class=\"repos\">");
         b.Append($"""<li>{E(db.GetUser(m.OwnerId)?.Login ?? "?")} <span class="role role-owner">owner</span></li>""");
