@@ -30,7 +30,7 @@ public class CacheGuardTests
         Directory.CreateDirectory(dbPath);
 
         var db = new HubDb(dbPath);
-        IOException ex = Assert.Throws<IOException>(() => db.CreateToken("dev:alice", "laptop"));
+        HubDbSaveException ex = Assert.Throws<HubDbSaveException>(() => db.CreateToken("dev:alice", "laptop")); // recognizable → 507 (#32)
         Assert.Contains("account database", ex.Message);
         Assert.Empty(Directory.GetFiles(tmp.Path, "db.tmp-*")); // the stray temp file was cleaned up
     }

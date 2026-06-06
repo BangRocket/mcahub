@@ -18,12 +18,22 @@ public sealed class HubDb
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
+    private const int CurrentSchema = 1; // bump when hub.json's shape changes incompatibly
+
     public HubDb(string path)
     {
         _path = Path.GetFullPath(path);
-        _db = File.Exists(_path)
+        Db loaded = File.Exists(_path)
             ? JsonSerializer.Deserialize<Db>(File.ReadAllBytes(_path)) ?? new Db()
             : new Db();
+        // A file written by a NEWER hub (higher schema) can't be safely read by this one — refuse rather
+        // than silently misread it and Save() the loss back. A pre-versioned file deserializes to the
+        // current schema (same shape), so it loads fine. (#32)
+        if (loaded.SchemaVersion > CurrentSchema)
+            throw new HubDbSchemaException(
+                $"hub.json is schema v{loaded.SchemaVersion} but this hub understands up to v{CurrentSchema}. " +
+                "Back up hub.json and upgrade the hub (see the release notes for any migration).");
+        _db = loaded with { SchemaVersion = CurrentSchema }; // normalize so the next Save() stamps the version
         foreach (TokenRecord t in _db.Tokens) _byHash[t.Hash] = t;
     }
 
@@ -431,7 +441,7 @@ public sealed class HubDb
             // Don't leave a stray temp file (e.g. on a full disk); the live db is untouched (never torn),
             // and we surface the failure clearly instead of silently dropping the mutation.
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
-            throw new IOException($"failed to persist the account database to {_path} (disk full?): {e.Message}", e);
+            throw new HubDbSaveException($"failed to persist the account database to {_path} (disk full?): {e.Message}", e);
         }
     }
 
@@ -442,6 +452,7 @@ public sealed class HubDb
 
     private sealed record Db
     {
+        public int SchemaVersion { get; init; } = CurrentSchema; // missing in a pre-versioned file → current
         public List<HubUser> Users { get; init; } = [];
         public List<TokenRecord> Tokens { get; init; } = [];
         public List<HubRepoMeta> Repos { get; init; } = [];
@@ -464,3 +475,9 @@ public sealed record TokenAuth(string UserId, string Scope); // resolved Bearer 
 public sealed record Collab(string Repo, string UserId, string Role); // Role: "read" | "write"
 public sealed record Team(string Name, string OwnerId, List<string> Members, string CreatedAt);
 public sealed record TeamGrant(string Repo, string TeamName, string Role); // Role: "read" | "write"
+
+/// <summary>hub.json couldn't be persisted (e.g. disk full) — the mutation is in memory but not on disk (#32).</summary>
+public sealed class HubDbSaveException(string message, Exception inner) : Exception(message, inner);
+
+/// <summary>hub.json is a schema version this hub can't safely read — refuse to start (#32).</summary>
+public sealed class HubDbSchemaException(string message) : Exception(message);

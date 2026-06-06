@@ -122,6 +122,16 @@ app.Use(async (ctx, next) =>
         "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
     await next(ctx);
 });
+app.Use(async (ctx, next) =>                    // a save that can't reach disk → 507, not a 500 crash (#32)
+{
+    try { await next(ctx); }
+    catch (HubDbSaveException) when (!ctx.Response.HasStarted)
+    {
+        ctx.Response.Clear();
+        ctx.Response.StatusCode = StatusCodes.Status507InsufficientStorage;
+        await ctx.Response.WriteAsync("the server is out of disk space — your change was not saved");
+    }
+});
 app.UseHsts();                                 // Strict-Transport-Security (only emitted over HTTPS)
 app.UseStaticFiles();                         // wwwroot/style.css, /app.js
 app.UseRequestTimeouts();                      // enforces the per-endpoint render deadline (Pages.RenderTimeoutPolicy)
@@ -150,6 +160,10 @@ int maxWorldsPerUser = int.TryParse(app.Configuration["MaxWorldsPerUser"] ?? Env
 Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser); // mcadiff clone/fetch/push under /r/{repo}/…
 string? reportEmail = app.Configuration["ReportEmail"] ?? Environment.GetEnvironmentVariable("MCAHUB_REPORT_EMAIL"); // abuse-report address (#35)
 Pages.MapPages(app, store, cache, maps, db, auth, audit, reportEmail); // the web UI (browse + compare + world-state + map + account)
+
+// Liveness probe for proxies/orchestrators — intentionally unauthenticated + rate-limit exempt (#32).
+// Document that it must not be blocked at the proxy.
+app.MapGet("/health", () => Results.Ok(new { status = "ok", utc = DateTimeOffset.UtcNow })).DisableRateLimiting();
 
 string mode = auth.Accounts ? (auth.Oauth ? $"accounts ({string.Join("/", auth.Providers.Select(p => p.Name))} OAuth)" : "accounts (dev login)")
     : !auth.HasMaster ? "open push" : "token-gated push";
