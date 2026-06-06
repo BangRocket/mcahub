@@ -147,3 +147,7 @@ form.revoke button:hover, form.settings button:hover { border-color: var(--red);
 }
 .flash .token { color: var(--green); font-size: 14px; word-break: break-all; }
 .flash .g-where { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+/* Timeline map thumbnails (#27) */
+ol.timeline li a.thumb { display: inline-block; margin-right: 8px; vertical-align: middle; flex: 0 0 auto; }
+ol.timeline li a.thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: #1a1a1a; display: block; }

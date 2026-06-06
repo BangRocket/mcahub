@@ -28,16 +28,18 @@ public sealed class MapCache
         _quota.Enforce();
     }
 
-    public async Task<byte[]> PngAsync(string repoName, Repository repo, string commit, CancellationToken ct)
+    public async Task<byte[]> PngAsync(string repoName, Repository repo, string commit, CancellationToken ct, MapDimension dim = MapDimension.Overworld)
     {
-        string path = Path.Combine(_root, repoName, commit + ".png");
-        string key = repoName + ":" + commit;
+        // Overworld keeps the bare <commit>.png path (back-compat); the Nether/End get a suffix (#27).
+        string suffix = dim == MapDimension.Overworld ? "" : "-" + dim.ToString().ToLowerInvariant();
+        string path = Path.Combine(_root, repoName, commit + suffix + ".png");
+        string key = repoName + ":" + commit + suffix;
         if (File.Exists(path)) { _quota.Touch(key); return await File.ReadAllBytesAsync(path, ct); }
         return await _gate.RunAsync(key, async () =>
         {
             if (File.Exists(path)) { _quota.Touch(key); return await File.ReadAllBytesAsync(path, ct); } // double-check
             string worldDir = _worlds.Materialize(repoName, repo, commit, ct);
-            byte[] png = MapRenderer.Render(worldDir, out _, _maxRenderChunks, ct);
+            byte[] png = MapRenderer.Render(worldDir, dim, out _, _maxRenderChunks, ct);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
             await File.WriteAllBytesAsync(tmp, png, ct);

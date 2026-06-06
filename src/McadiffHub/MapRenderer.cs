@@ -7,6 +7,9 @@ namespace McadiffHub;
 
 public sealed record MapInfo(int Width, int Height, int Chunks, bool Truncated, int RegionsRead = 0);
 
+/// <summary>Which dimension's region tree to render (#27).</summary>
+public enum MapDimension { Overworld, Nether, End }
+
 /// <summary>
 /// Renders a top-down surface map of a materialized world (the <c>region/*.mca</c> files) to a PNG —
 /// the visual companion to the semantic diff. For each block column it scans sections top-down for the
@@ -20,8 +23,15 @@ public static class MapRenderer
     private const int MaxSideChunks = 160; // cap the rendered span at 160×160 chunks (2560px); bigger worlds truncate
 
     public static byte[] Render(string worldDir, out MapInfo info, int maxChunks = 10_000, CancellationToken ct = default)
+        => Render(worldDir, MapDimension.Overworld, out info, maxChunks, ct);
+
+    public static byte[] Render(string worldDir, MapDimension dim, out MapInfo info, int maxChunks = 10_000, CancellationToken ct = default)
     {
-        string regionDir = Path.Combine(worldDir, "region");
+        // Overworld lives in region/; the Nether/End in DIM-1/region and DIM1/region (#27).
+        string regionDir = Path.Combine(worldDir, dim switch { MapDimension.Nether => "DIM-1", MapDimension.End => "DIM1", _ => "" }, "region");
+        // The Nether has a solid bedrock roof (~y122-127); a top-down scan would render the ceiling, so cap
+        // the scan below it to show the playable layer. Overworld/End scan from the top.
+        int maxScanY = dim == MapDimension.Nether ? 120 : int.MaxValue;
         var surfaces = new Dictionary<ChunkPos, Surface>();
         int minCX = int.MaxValue, minCZ = int.MaxValue, maxCX = int.MinValue, maxCZ = int.MinValue;
 
@@ -40,7 +50,7 @@ public static class MapRenderer
                 {
                     if (surfaces.Count >= maxChunks) { capHit = true; break; }
                     ct.ThrowIfCancellationRequested();
-                    Surface? s = SurfaceOf(raw);
+                    Surface? s = SurfaceOf(raw, maxScanY);
                     if (s is null) continue;
                     surfaces[raw.Pos] = s;
                     minCX = Math.Min(minCX, raw.Pos.X); maxCX = Math.Max(maxCX, raw.Pos.X);
@@ -92,7 +102,7 @@ public static class MapRenderer
 
     private sealed class Surface { public byte[] R = new byte[256]; public byte[] G = new byte[256]; public byte[] B = new byte[256]; public int[] Y = new int[256]; }
 
-    private static Surface? SurfaceOf(RawChunk raw)
+    private static Surface? SurfaceOf(RawChunk raw, int maxScanY)
     {
         NbtCompound root;
         try { root = ChunkCodec.Decode(raw); }
@@ -108,6 +118,7 @@ public static class MapRenderer
             sbyte secY = (sbyte)yTag.Value;
             if (secY < -4 || secY > 19) continue; // (#15) ignore sections outside the 1.18+ range; a crafted
                                                   // Y=-128 otherwise poisons height[] and corrupts shading
+            if (secY * 16 > maxScanY) continue;   // (#27) entirely above the roof cap (Nether roof-skip)
             if (sec.Get<NbtCompound>("block_states") is not { } bs) continue;
             if (BlockStateDecoder.Decode(bs, 4096, BlockStateDecoder.BlockMinBits) is { } cells)
                 decoded.Add((secY, cells));
@@ -126,6 +137,7 @@ public static class MapRenderer
                     bool found = false;
                     for (int ly = 15; ly >= 0; ly--)
                     {
+                        if (secY * 16 + ly > maxScanY) continue; // (#27) above the roof cap — keep scanning down
                         string name = Strip(cells[(ly * 16 + lz) * 16 + lx]); // i = (y*16 + z)*16 + x
                         if (IsAir(name)) continue;
                         (byte r, byte g, byte b) = ColorOf(name);
