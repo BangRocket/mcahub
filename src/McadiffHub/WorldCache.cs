@@ -95,5 +95,13 @@ public sealed class WorldCache
         try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); } catch { /* best-effort eviction */ }
     }
 
+    /// <summary>Delete a repo's whole materialized-world cache (on world/account deletion).</summary>
+    public void Drop(string repoName)
+    {
+        string dir = Path.Combine(_root, repoName);
+        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* best-effort */ }
+        _quota.Forget(repoName);
+    }
+
     private static bool Ready(string dir) => Directory.Exists(dir) && Directory.EnumerateFileSystemEntries(dir).Any();
 }

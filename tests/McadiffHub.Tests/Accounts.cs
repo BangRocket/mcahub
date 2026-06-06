@@ -57,6 +57,20 @@ internal static class Accounts
         await signedIn.PostAsync("/account/sign-out-everywhere", Form(("__RequestVerificationToken", csrf)));
     }
 
+    /// <summary>Owner deletes a world from its page.</summary>
+    public static async Task DeleteWorldAsync(HttpClient owner, string repo)
+    {
+        string csrf = Csrf(await GetStringAsync(owner, $"/r/{repo}"));
+        await owner.PostAsync($"/r/{repo}/delete", Form(("__RequestVerificationToken", csrf)));
+    }
+
+    /// <summary>Delete the signed-in user's account (GDPR erasure).</summary>
+    public static async Task DeleteAccountAsync(HttpClient signedIn)
+    {
+        string csrf = Csrf(await GetStringAsync(signedIn, "/account"));
+        await signedIn.PostAsync("/account/delete", Form(("__RequestVerificationToken", csrf)));
+    }
+
     /// <summary>Create + claim a repo as the token's owner. The first authenticated write to a new name
     /// auto-creates and claims it (the dummy object is rejected, but ownership is established first).</summary>
     public static async Task CreateRepoAsync(HubFactory f, string ownerToken, string repo)

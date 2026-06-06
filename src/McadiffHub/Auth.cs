@@ -112,14 +112,18 @@ public static class Auth
                 o.LogoutPath = "/auth/logout";
                 o.ExpireTimeSpan = TimeSpan.FromDays(30);
                 o.SlidingExpiration = true;
-                // "Sign out everywhere": reject any session whose epoch is behind the user's current epoch (#18).
+                // Reject a session whose user was deleted (#35) or whose epoch is behind the current one
+                // ("sign out everywhere", #18).
                 o.Events.OnValidatePrincipal = async context =>
                 {
-                    if (context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier) is { } uid
-                        && (context.Principal.FindFirstValue("epoch") ?? "0") != (db.GetUser(uid)?.Epoch ?? 0).ToString())
+                    if (context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier) is { } uid)
                     {
-                        context.RejectPrincipal();
-                        await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                        HubUser? user = db.GetUser(uid);
+                        if (user is null || (context.Principal.FindFirstValue("epoch") ?? "0") != user.Epoch.ToString())
+                        {
+                            context.RejectPrincipal();
+                            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                        }
                     }
                 };
             });

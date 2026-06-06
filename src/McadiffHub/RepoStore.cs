@@ -31,6 +31,14 @@ public sealed partial class RepoStore(string dataDir)
         return Repository.Init(PathOf(name));
     }
 
+    /// <summary>Delete a hosted repo from disk. Returns false if it didn't exist.</summary>
+    public bool Delete(string name)
+    {
+        if (!Exists(name)) return false;
+        Directory.Delete(PathOf(name), recursive: true);
+        return true;
+    }
+
     /// <summary>Every hosted repo, with a little summary for the listing page.</summary>
     public IEnumerable<RepoSummary> List()
     {

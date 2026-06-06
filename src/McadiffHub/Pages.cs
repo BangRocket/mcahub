@@ -73,6 +73,17 @@ public static class Pages
             }
             return Results.Redirect("/");
         });
+        app.MapPost("/account/delete", async (HttpContext ctx) => // GDPR/CCPA erasure (#35)
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me)
+            {
+                IReadOnlyList<string> owned = db.DeleteUser(me.Id); // identity, tokens, grants, owned teams + repo metas
+                foreach (string r in owned) PurgeRepoStorage(r, store, cache, maps);
+                Log(ctx, audit, "account.delete", null, $"deleted account + {owned.Count} world(s)");
+            }
+            return Results.Redirect("/"); // the now-deleted user's session is rejected on its next request
+        });
         app.MapPost("/r/{repo}/settings", async (string repo, HttpContext ctx) =>
         {
             if (!await Auth.CsrfOk(ctx)) return BadCsrf();
@@ -177,6 +188,26 @@ public static class Pages
 
         // Per-repo audit history, owners/admins only (#16).
         app.MapGet("/r/{repo}/audit", (string repo, HttpContext ctx) => AuditView(ctx, store, db, cfg, audit, repo));
+
+        app.MapPost("/r/{repo}/delete", async (string repo, HttpContext ctx) => // owner/admin deletes a world (#35)
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManagePeople(db, repo, me.Id))
+            {
+                Log(ctx, audit, "world.delete", repo, "deleted"); // log before the repo is gone
+                db.DeleteRepo(repo);
+                PurgeRepoStorage(repo, store, cache, maps);
+            }
+            return Results.Redirect("/");
+        });
+    }
+
+    /// <summary>Remove a repo's on-disk bytes: the bare repo + its materialized-world and map caches.</summary>
+    private static void PurgeRepoStorage(string repo, RepoStore store, WorldCache cache, MapCache maps)
+    {
+        store.Delete(repo);
+        cache.Drop(repo);
+        maps.Drop(repo);
     }
 
     private static IResult BadCsrf() => Results.Text("Invalid or expired form token — go back, reload the page, and retry.", statusCode: 400);
@@ -312,7 +343,10 @@ public static class Pages
         string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
         b.Append($"""<p class="clone">Clone: <code>mcadiff clone {E(baseUrl)}/r/{E(name)} {E(name)}.mcagit</code></p>""");
         if (me is not null && Auth.CanManagePeople(db, name, me.Id))
+        {
             b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
+            b.Append($"""<form class="settings" method="post" action="/r/{E(name)}/delete" data-confirm="Permanently delete the world “{E(name)}” and all its backups? This cannot be undone.">{Auth.CsrfField(ctx)}<button>Delete world</button></form>""");
+        }
 
         b.Append("<h2>Branches</h2><ul class=\"branches\">");
         foreach (string br in repo.Branches())
@@ -583,6 +617,10 @@ public static class Pages
             <form class="settings" method="post" action="/account/sign-out-everywhere" data-confirm="Sign out everywhere? This revokes all your tokens and signs out every session.">
               {Auth.CsrfField(ctx)}
               <button>Sign out everywhere</button>
+            </form>
+            <form class="settings" method="post" action="/account/delete" data-confirm="Permanently delete your account? This erases your identity, tokens, and all worlds you own. This cannot be undone.">
+              {Auth.CsrfField(ctx)}
+              <button>Delete my account</button>
             </form>
             """);
 
