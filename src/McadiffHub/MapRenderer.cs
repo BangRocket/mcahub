@@ -51,9 +51,13 @@ public static class MapRenderer
         if (surfaces.Count == 0) { info = new MapInfo(0, 0, 0, false, regionsRead); return EmptyPng(); }
 
         // Clamp a runaway span to a window centered on the populated area. A hit chunk-cap also truncates.
+        // Chunk coords come from attacker-controlled region filenames (r.<X>.<Z>.mca) and span the full int
+        // range, so the span and midpoint are computed in LONG: `max - min + 1` in int would overflow and
+        // wrap past the `> MaxSideChunks` test, bypassing the clamp into a huge/negative allocation. After
+        // clamping, each span is provably ≤ MaxSideChunks, so the int math below can't overflow (w,h ≤ 2560).
         bool truncated = capHit;
-        if (maxCX - minCX + 1 > MaxSideChunks) { int c = (minCX + maxCX) / 2; minCX = c - MaxSideChunks / 2; maxCX = minCX + MaxSideChunks - 1; truncated = true; }
-        if (maxCZ - minCZ + 1 > MaxSideChunks) { int c = (minCZ + maxCZ) / 2; minCZ = c - MaxSideChunks / 2; maxCZ = minCZ + MaxSideChunks - 1; truncated = true; }
+        if ((long)maxCX - minCX + 1 > MaxSideChunks) { long c = ((long)minCX + maxCX) / 2; minCX = (int)(c - MaxSideChunks / 2); maxCX = minCX + MaxSideChunks - 1; truncated = true; }
+        if ((long)maxCZ - minCZ + 1 > MaxSideChunks) { long c = ((long)minCZ + maxCZ) / 2; minCZ = (int)(c - MaxSideChunks / 2); maxCZ = minCZ + MaxSideChunks - 1; truncated = true; }
 
         int w = (maxCX - minCX + 1) * 16, h = (maxCZ - minCZ + 1) * 16;
         byte[] rgb = new byte[w * h * 3];
