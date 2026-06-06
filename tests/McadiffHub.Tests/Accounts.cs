@@ -78,6 +78,13 @@ internal static class Accounts
         await signedIn.PostAsync("/auth/age-gate", Form(("__RequestVerificationToken", csrf)));
     }
 
+    /// <summary>Owner transfers a world to another user (by login).</summary>
+    public static async Task TransferAsync(HttpClient owner, string repo, string newOwnerLogin)
+    {
+        string csrf = Csrf(await GetStringAsync(owner, $"/r/{repo}"));
+        await owner.PostAsync($"/r/{repo}/transfer", Form(("__RequestVerificationToken", csrf), ("login", newOwnerLogin)));
+    }
+
     /// <summary>Create + claim a repo as the token's owner. The first authenticated write to a new name
     /// auto-creates and claims it (the dummy object is rejected, but ownership is established first).</summary>
     public static async Task CreateRepoAsync(HubFactory f, string ownerToken, string repo)
