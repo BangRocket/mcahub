@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory records the **load-bearing, non-obvious decisions** behind mcadiff-hub —
+This directory records the **load-bearing, non-obvious decisions** behind mcahub —
 the ones that would otherwise live only in commit history or a maintainer's head and get
 re-litigated without their rationale. Format is [Michael Nygard's ADR template](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)
 (see [`TEMPLATE.md`](TEMPLATE.md)).

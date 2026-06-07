@@ -81,7 +81,7 @@ Write concise notes about what you found and where. Record:
 
 # Persistent Agent Memory
 
-You have a persistent, file-based memory system at `C:\Users\steven.cady\repos\personal\mcadiff-hub\.claude\agent-memory\identity-auth-builder\`. This directory already exists — write to it directly with the Write tool (do not run mkdir or check for its existence).
+You have a persistent, file-based memory system at `C:\Users\steven.cady\repos\personal\mcahub\.claude\agent-memory\identity-auth-builder\`. This directory already exists — write to it directly with the Write tool (do not run mkdir or check for its existence).
 
 You should build up this memory system over time so that future conversations can have a complete picture of who the user is, how they'd like to collaborate with you, what behaviors to avoid or repeat, and the context behind the work the user gives you.
 

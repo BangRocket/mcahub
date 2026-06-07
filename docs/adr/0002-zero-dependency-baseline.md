@@ -5,7 +5,7 @@
 
 ## Context
 
-mcadiff-hub is a self-hostable tool whose adoption depends on being trivial to build and
+mcahub is a self-hostable tool whose adoption depends on being trivial to build and
 run. Every third-party NuGet package is a supply-chain surface, a future-CVE vector, and a
 thing a self-hoster's `dotnet restore` must fetch and a reviewer must trust. The codebase
 already reflects a deliberate hand-rolled stance: the PNG encoder is written directly on

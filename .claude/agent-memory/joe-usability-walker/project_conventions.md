@@ -1,6 +1,6 @@
 ---
 name: product-conventions
-description: Recurring UI patterns in mcadiff-hub — good, bad, and jargon-heavy — discovered during walkthroughs
+description: Recurring UI patterns in mcahub — good, bad, and jargon-heavy — discovered during walkthroughs
 metadata:
   type: project
 ---

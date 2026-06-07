@@ -4,7 +4,7 @@
 
 **Goal:** Stand up an xUnit + `WebApplicationFactory<Program>` test project with a `HubFactory` that boots the hub hermetically in any auth mode, plus a CI job — so every later security fix lands with a regression test.
 
-**Architecture:** A new `tests/McadiffHub.Tests` project references the hub and boots it in-memory via `WebApplicationFactory<Program>`. A `HubFactory` drives the hub's mode (open / token / accounts) **purely through `IConfiguration` (`UseSetting`)** against fresh temp directories, so tests are hermetic and parallel-safe. A small config-first refactor in `Auth.Read`/`Program` makes dev-login, the proxy switch, and the master token controllable via config (matching how the dir paths already read). CI checks out the sibling `mcadiff` core pinned to a known commit.
+**Architecture:** A new `tests/McaHub.Tests` project references the hub and boots it in-memory via `WebApplicationFactory<Program>`. A `HubFactory` drives the hub's mode (open / token / accounts) **purely through `IConfiguration` (`UseSetting`)** against fresh temp directories, so tests are hermetic and parallel-safe. A small config-first refactor in `Auth.Read`/`Program` makes dev-login, the proxy switch, and the master token controllable via config (matching how the dir paths already read). CI checks out the sibling `mcadiff` core pinned to a known commit.
 
 **Tech Stack:** .NET 10, xUnit, `Microsoft.AspNetCore.Mvc.Testing`, GitHub Actions.
 
@@ -13,12 +13,12 @@
 ### Task 1: Expose the entry point + make auth/proxy/token config-first
 
 **Files:**
-- Modify: `src/McadiffHub/Auth.cs:28-49` (`Auth.Read`)
-- Modify: `src/McadiffHub/Program.cs:39` (proxy switch) and end-of-file (entry-point exposure)
+- Modify: `src/McaHub/Auth.cs:28-49` (`Auth.Read`)
+- Modify: `src/McaHub/Program.cs:39` (proxy switch) and end-of-file (entry-point exposure)
 
 - [ ] **Step 1: Make `Auth.Read` config-first for dev-login and treat an empty master token as unset**
 
-In `src/McadiffHub/Auth.cs`, replace the body of `Read` (lines 28-49) with:
+In `src/McaHub/Auth.cs`, replace the body of `Read` (lines 28-49) with:
 
 ```csharp
     public static Config Read(IConfiguration c)
@@ -51,7 +51,7 @@ In `src/McadiffHub/Auth.cs`, replace the body of `Read` (lines 28-49) with:
 
 - [ ] **Step 2: Make the proxy switch config-first in `Program.cs`**
 
-In `src/McadiffHub/Program.cs`, change line 39 from:
+In `src/McaHub/Program.cs`, change line 39 from:
 
 ```csharp
     if (Environment.GetEnvironmentVariable("MCAHUB_BEHIND_PROXY") is "1" or "true")
@@ -65,7 +65,7 @@ to:
 
 - [ ] **Step 3: Expose `Program` as a partial class for `WebApplicationFactory<Program>`**
 
-At the very end of `src/McadiffHub/Program.cs` (after the `LoadDotEnv` local function), add:
+At the very end of `src/McaHub/Program.cs` (after the `LoadDotEnv` local function), add:
 
 ```csharp
 
@@ -75,13 +75,13 @@ public partial class Program;
 
 - [ ] **Step 4: Build to verify the refactor compiles**
 
-Run: `dotnet build src/McadiffHub/McadiffHub.csproj -v q -clp:NoSummary`
+Run: `dotnet build src/McaHub/McaHub.csproj -v q -clp:NoSummary`
 Expected: `Build succeeded.` / `0 Error(s)`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/McadiffHub/Auth.cs src/McadiffHub/Program.cs
+git add src/McaHub/Auth.cs src/McaHub/Program.cs
 git commit -m "Make auth mode/proxy/token config-first; expose Program for tests"
 ```
 
@@ -90,16 +90,16 @@ git commit -m "Make auth mode/proxy/token config-first; expose Program for tests
 ### Task 2: Scaffold the xUnit test project
 
 **Files:**
-- Create: `tests/McadiffHub.Tests/McadiffHub.Tests.csproj` (via template)
-- Delete: `tests/McadiffHub.Tests/UnitTest1.cs` (template placeholder)
-- Modify: `McadiffHub.slnx`
+- Create: `tests/McaHub.Tests/McaHub.Tests.csproj` (via template)
+- Delete: `tests/McaHub.Tests/UnitTest1.cs` (template placeholder)
+- Modify: `McaHub.slnx`
 
 - [ ] **Step 1: Create the project from the xUnit template**
 
 Run:
 ```bash
-dotnet new xunit -o tests/McadiffHub.Tests -n McadiffHub.Tests
-rm tests/McadiffHub.Tests/UnitTest1.cs
+dotnet new xunit -o tests/McaHub.Tests -n McaHub.Tests
+rm tests/McaHub.Tests/UnitTest1.cs
 ```
 Expected: project + `xunit`/`Microsoft.NET.Test.Sdk` package refs created with SDK-appropriate versions.
 
@@ -107,32 +107,32 @@ Expected: project + `xunit`/`Microsoft.NET.Test.Sdk` package refs created with S
 
 Run:
 ```bash
-dotnet add tests/McadiffHub.Tests/McadiffHub.Tests.csproj reference src/McadiffHub/McadiffHub.csproj
-dotnet add tests/McadiffHub.Tests/McadiffHub.Tests.csproj package Microsoft.AspNetCore.Mvc.Testing
+dotnet add tests/McaHub.Tests/McaHub.Tests.csproj reference src/McaHub/McaHub.csproj
+dotnet add tests/McaHub.Tests/McaHub.Tests.csproj package Microsoft.AspNetCore.Mvc.Testing
 ```
 Expected: both succeed; `Microsoft.AspNetCore.Mvc.Testing` resolves a `10.0.x` version.
 
 - [ ] **Step 3: Add the test project to the solution**
 
-Run: `dotnet sln McadiffHub.slnx add tests/McadiffHub.Tests/McadiffHub.Tests.csproj --solution-folder tests`
+Run: `dotnet sln McaHub.slnx add tests/McaHub.Tests/McaHub.Tests.csproj --solution-folder tests`
 Expected: `Project ... added to the solution.`
-Fallback if the CLI rejects slnx: hand-edit `McadiffHub.slnx` to add, before the `McaDiff` line:
+Fallback if the CLI rejects slnx: hand-edit `McaHub.slnx` to add, before the `McaDiff` line:
 ```xml
   <Folder Name="/tests/">
-    <Project Path="tests/McadiffHub.Tests/McadiffHub.Tests.csproj" />
+    <Project Path="tests/McaHub.Tests/McaHub.Tests.csproj" />
   </Folder>
 ```
 
 - [ ] **Step 4: Verify the empty project builds and the runner works**
 
-Run: `dotnet test tests/McadiffHub.Tests/McadiffHub.Tests.csproj`
+Run: `dotnet test tests/McaHub.Tests/McaHub.Tests.csproj`
 Expected: build succeeds, `Passed! - Failed: 0, Passed: 0` (no tests yet) or the template test passed if not deleted. If a build error mentions `Microsoft.AspNetCore.App`, add `<FrameworkReference Include="Microsoft.AspNetCore.App" />` in a new `<ItemGroup>` in the csproj and re-run.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/McadiffHub.Tests/McadiffHub.Tests.csproj McadiffHub.slnx
-git commit -m "Scaffold McadiffHub.Tests xUnit project"
+git add tests/McaHub.Tests/McaHub.Tests.csproj McaHub.slnx
+git commit -m "Scaffold McaHub.Tests xUnit project"
 ```
 
 ---
@@ -140,17 +140,17 @@ git commit -m "Scaffold McadiffHub.Tests xUnit project"
 ### Task 3: HubFactory test helper
 
 **Files:**
-- Create: `tests/McadiffHub.Tests/HubFactory.cs`
+- Create: `tests/McaHub.Tests/HubFactory.cs`
 
 - [ ] **Step 1: Write `HubFactory`**
 
-Create `tests/McadiffHub.Tests/HubFactory.cs`:
+Create `tests/McaHub.Tests/HubFactory.cs`:
 
 ```csharp
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 
-namespace McadiffHub.Tests;
+namespace McaHub.Tests;
 
 public enum HubMode { Open, Token, Accounts }
 
@@ -202,13 +202,13 @@ public sealed class HubFactory : WebApplicationFactory<Program>
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `dotnet build tests/McadiffHub.Tests/McadiffHub.Tests.csproj -v q -clp:NoSummary`
+Run: `dotnet build tests/McaHub.Tests/McaHub.Tests.csproj -v q -clp:NoSummary`
 Expected: `Build succeeded.`
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/McadiffHub.Tests/HubFactory.cs
+git add tests/McaHub.Tests/HubFactory.cs
 git commit -m "Add HubFactory: hermetic in-memory hub for tests"
 ```
 
@@ -217,18 +217,18 @@ git commit -m "Add HubFactory: hermetic in-memory hub for tests"
 ### Task 4: Tests proving the harness across modes
 
 **Files:**
-- Create: `tests/McadiffHub.Tests/AuthReadTests.cs`
-- Create: `tests/McadiffHub.Tests/HarnessSmokeTests.cs`
+- Create: `tests/McaHub.Tests/AuthReadTests.cs`
+- Create: `tests/McaHub.Tests/HarnessSmokeTests.cs`
 
 - [ ] **Step 1: Write the `Auth.Read` config-first unit tests**
 
-Create `tests/McadiffHub.Tests/AuthReadTests.cs`:
+Create `tests/McaHub.Tests/AuthReadTests.cs`:
 
 ```csharp
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
-namespace McadiffHub.Tests;
+namespace McaHub.Tests;
 
 public class AuthReadTests
 {
@@ -268,19 +268,19 @@ public class AuthReadTests
 
 - [ ] **Step 2: Run them — expect PASS (Task 1 already implemented the behavior)**
 
-Run: `dotnet test tests/McadiffHub.Tests/McadiffHub.Tests.csproj --filter AuthReadTests`
+Run: `dotnet test tests/McaHub.Tests/McaHub.Tests.csproj --filter AuthReadTests`
 Expected: `Passed!` with 3 passed. If `DevLogin_can_be_enabled...` fails on `Oauth`, the dev shell exports real `MCAHUB_OAUTH_*`; the baseline empty values should still win — confirm `Auth.Read` reads `c[key]` before env (it does).
 
 - [ ] **Step 3: Write the integration smoke tests**
 
-Create `tests/McadiffHub.Tests/HarnessSmokeTests.cs`:
+Create `tests/McaHub.Tests/HarnessSmokeTests.cs`:
 
 ```csharp
 using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
-namespace McadiffHub.Tests;
+namespace McaHub.Tests;
 
 public class HarnessSmokeTests
 {
@@ -318,14 +318,14 @@ These prove: the app boots and renders (open `GET /` → 200), and **mode select
 
 - [ ] **Step 4: Run the full test project — expect all green**
 
-Run: `dotnet test tests/McadiffHub.Tests/McadiffHub.Tests.csproj`
+Run: `dotnet test tests/McaHub.Tests/McaHub.Tests.csproj`
 Expected: `Passed!` with 6 passed, 0 failed.
 If `Accounts_mode_...` returns 404 instead of 302, `UseSetting("DevLogin","1")` did not reach the pre-`Build()` `Auth.Read`; switch `HubFactory.ConfigureWebHost` to also set the values via `builder.ConfigureAppConfiguration((_, cb) => cb.AddInMemoryCollection(...))` AND keep `UseSetting`, then re-run. (Expected to pass with `UseSetting` alone.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/McadiffHub.Tests/AuthReadTests.cs tests/McadiffHub.Tests/HarnessSmokeTests.cs
+git add tests/McaHub.Tests/AuthReadTests.cs tests/McaHub.Tests/HarnessSmokeTests.cs
 git commit -m "Add harness smoke + Auth.Read config tests"
 ```
 
@@ -371,15 +371,15 @@ jobs:
 
       - name: Restore
         working-directory: mcahub
-        run: dotnet restore McadiffHub.slnx
+        run: dotnet restore McaHub.slnx
 
       - name: Build
         working-directory: mcahub
-        run: dotnet build McadiffHub.slnx --configuration Release --no-restore
+        run: dotnet build McaHub.slnx --configuration Release --no-restore
 
       - name: Test
         working-directory: mcahub
-        run: dotnet test McadiffHub.slnx --configuration Release --no-build
+        run: dotnet test McaHub.slnx --configuration Release --no-build
 ```
 
 The checkout paths put the hub at `<workspace>/mcahub` and the core at `<workspace>/mca-git`, so the build's `..\..\..\mca-git\src\McaDiff\McaDiff.csproj` reference resolves. The core is pinned to today's `main` (`41f6f2f`) for reproducibility and to seed the supply-chain work (#12).
@@ -402,7 +402,7 @@ git commit -m "Add CI: dotnet test with pinned mcadiff core"
 
 - [ ] **Step 1: Full green run from the solution**
 
-Run: `dotnet test McadiffHub.slnx`
+Run: `dotnet test McaHub.slnx`
 Expected: build succeeds; `Passed!` with 6 passed, 0 failed.
 
 - [ ] **Step 2: Push the branch**
@@ -416,7 +416,7 @@ Run:
 gh pr create --base main --title "Stand up the test project (WebApplicationFactory + HubFactory + CI)" --body "$(cat <<'EOF'
 Stands up the test foundation for the security-hardening campaign (roadmap: docs/superpowers/specs/2026-06-05-security-hardening-roadmap-design.md).
 
-- xUnit `tests/McadiffHub.Tests` with `WebApplicationFactory<Program>`
+- xUnit `tests/McaHub.Tests` with `WebApplicationFactory<Program>`
 - `HubFactory`: boots the hub hermetically (temp dirs, OAuth forced off) in open/token/accounts mode, driven purely via IConfiguration
 - Small config-first refactor: dev-login, the proxy switch, and the master token now read config-then-env (matching the dir paths); empty master token is treated as unset
 - Smoke + `Auth.Read` tests proving mode selection works

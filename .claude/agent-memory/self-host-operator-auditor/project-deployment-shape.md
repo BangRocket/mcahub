@@ -1,15 +1,15 @@
 ---
 name: project-deployment-shape
-description: Deployment shape, submodule coupling (post ADR-0006), default paths, auth modes, and operator-relevant env vars for mcadiff-hub
+description: Deployment shape, submodule coupling (post ADR-0006), default paths, auth modes, and operator-relevant env vars for mcahub
 metadata:
   type: project
 ---
 
 ## Submodule coupling (per ADR-0006, superseding ADR-0003)
-- `src/McadiffHub/McadiffHub.csproj` has a `ProjectReference` to `../../mca-git/src/McaDiff/McaDiff.csproj`
+- `src/McaHub/McaHub.csproj` has a `ProjectReference` to `../../mca-git/src/McaDiff/McaDiff.csproj`
 - The mcadiff core is a git submodule at `./mca-git` of the hub repo, gitlink-pinned
 - Build failure without it (i.e., when a plain `git clone` leaves the submodule empty): ~26 CS0246 errors (Repository, RemoteService, etc. not found) — no helpful error message; fix is `git submodule update --init` or re-clone with `--recurse-submodules`
-- `McadiffHub.slnx` also references `../mca-git/src/McaDiff/McaDiff.csproj`
+- `McaHub.slnx` also references `../mca-git/src/McaDiff/McaDiff.csproj`
 - CI uses `actions/checkout` with `submodules: recursive`; README leads with `git clone --recurse-submodules` and CLAUDE.md restates the requirement
 
 ## Default paths (Program.cs lines 21-25)

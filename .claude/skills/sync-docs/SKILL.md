@@ -18,7 +18,7 @@ Don't compare docs to docs — compare each doc to the code:
    variable must appear, with the right default, in the README's config tables and `.env.example`;
    security-relevant ones (`MCAHUB_TOKEN`, `MCAHUB_DEV_LOGIN`, `MCAHUB_BEHIND_PROXY`, OAuth set)
    also in SECURITY.md.
-2. **Routes**: grep `Map(Get|Post)` in `src/McadiffHub/`. New endpoints must be reflected in
+2. **Routes**: grep `Map(Get|Post)` in `src/McaHub/`. New endpoints must be reflected in
    SECURITY.md's trust-boundary table (entry points column) and, if user-facing, the README's
    feature list / how-it-works section.
 3. **Invariant symbols**: confirm the names the docs lean on still exist and mean what's claimed —

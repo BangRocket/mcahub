@@ -32,10 +32,10 @@ metadata:
 - **Security invariants** — lines 75-87: 6 bullet invariants
 
 ## Source files
-- `src/McadiffHub/Auth.cs` — CanRead, CanWrite, CanManageSettings, CanManagePeople, CsrfField, CsrfOk, Identify, Local (open-redirect guard)
-- `src/McadiffHub/HubDb.cs` — RoleOf, EnsureRepo, token hashing
-- `src/McadiffHub/RepoStore.cs` — IsValidName regex
-- `src/McadiffHub/Transport.cs` — all /r/{repo}/* network protocol routes
-- `src/McadiffHub/Pages.cs` — all web UI routes including /teams, /account
-- `src/McadiffHub/Program.cs` — LoadDotEnv, MCAHUB_BEHIND_PROXY, all env var reads, MCAHUB_MAPS
-- `src/McadiffHub/MapCache.cs`, `MapRenderer.cs`, `WorldCache.cs` — untrusted-data path
+- `src/McaHub/Auth.cs` — CanRead, CanWrite, CanManageSettings, CanManagePeople, CsrfField, CsrfOk, Identify, Local (open-redirect guard)
+- `src/McaHub/HubDb.cs` — RoleOf, EnsureRepo, token hashing
+- `src/McaHub/RepoStore.cs` — IsValidName regex
+- `src/McaHub/Transport.cs` — all /r/{repo}/* network protocol routes
+- `src/McaHub/Pages.cs` — all web UI routes including /teams, /account
+- `src/McaHub/Program.cs` — LoadDotEnv, MCAHUB_BEHIND_PROXY, all env var reads, MCAHUB_MAPS
+- `src/McaHub/MapCache.cs`, `MapRenderer.cs`, `WorldCache.cs` — untrusted-data path

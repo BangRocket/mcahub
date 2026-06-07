@@ -20,7 +20,7 @@ pass/fail table at the end. Total runtime is a couple of minutes (the cold map r
 1. Create a scratch dir (e.g. `$env:TEMP/hub-smoke-<random>`). Everything lives under it:
    `data/`, `cache/`, `maps/`, `hub.json`, the CLI repo, and both published binaries.
 2. **Publish, don't `dotnet run`.** Publish once each from the repo root — the hub
-   (`dotnet publish src/McadiffHub -c Release -o <scratch>/hub-bin`) and the core CLI
+   (`dotnet publish src/McaHub -c Release -o <scratch>/hub-bin`) and the core CLI
    (`dotnet publish mca-git/src/McaDiff -c Release -o <scratch>/cli-bin`). The CLI gets invoked
    repeatedly; `dotnet run` pays MSBuild evaluation every time and its working-directory
    behavior has already caused one phantom 0-chunk bug here.

@@ -1,6 +1,6 @@
 using McaDiff.Repo;
 
-namespace McadiffHub.Sidecar;
+namespace McaHub.Sidecar;
 
 /// <summary>
 /// The snapshot-and-commit step the sidecar runs on each tick. Snapshots a world directory into a local

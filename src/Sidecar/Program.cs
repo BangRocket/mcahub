@@ -1,7 +1,7 @@
 using McaDiff.Repo;
-using McadiffHub.Sidecar;
+using McaHub.Sidecar;
 
-// mcadiff-hub sidecar: watch a Minecraft world directory and auto-push backups to a hub — no CLI, no cron.
+// mcahub sidecar: watch a Minecraft world directory and auto-push backups to a hub — no CLI, no cron.
 // Snapshots on a fixed interval and a debounced filesystem change, committing only when the world changed.
 //
 //   MCASIDE_WORLD     the world directory to watch (required)

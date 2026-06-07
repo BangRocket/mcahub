@@ -1,6 +1,6 @@
 ---
 name: project-posture
-description: Overall trust-and-safety posture of mcadiff-hub — current state, public surfaces, and what's missing before hosted/multi-tenant launch
+description: Overall trust-and-safety posture of mcahub — current state, public surfaces, and what's missing before hosted/multi-tenant launch
 metadata:
   type: project
 ---

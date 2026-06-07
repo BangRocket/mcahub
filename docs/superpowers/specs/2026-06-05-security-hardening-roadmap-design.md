@@ -55,13 +55,13 @@ cluster (#4, #14, #15) lands together.
 
 ## Test harness (#19) — detailed design
 
-The foundation every other PR builds on. Lives in `tests/McadiffHub.Tests/`.
+The foundation every other PR builds on. Lives in `tests/McaHub.Tests/`.
 
 ### Components
 
-- **Project** `tests/McadiffHub.Tests/McadiffHub.Tests.csproj`, `net10.0`, references the hub project
+- **Project** `tests/McaHub.Tests/McaHub.Tests.csproj`, `net10.0`, references the hub project
   and `Microsoft.AspNetCore.Mvc.Testing` (brings `WebApplicationFactory<TEntryPoint>`), **xUnit**.
-  Added to `McadiffHub.slnx`.
+  Added to `McaHub.slnx`.
 - **Entry point exposure:** append `public partial class Program;` to `Program.cs` so
   `WebApplicationFactory<Program>` can locate the entry point (top-level-statements requirement).
 - **`HubFactory`** — the central helper. Boots the hub with:

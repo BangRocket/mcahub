@@ -1,4 +1,4 @@
-# mcadiff-hub
+# mcahub
 
 **GitHub, for Minecraft worlds.** A self-hostable platform that hosts [`mcadiff`](https://github.com/BangRocket/mcadiff)
 repositories (version-controlled worlds) over HTTP and gives them a web face: push a world, browse its
@@ -50,7 +50,7 @@ you cloned without the submodule — run `git submodule update --init --recursiv
 
 ```sh
 git clone --recurse-submodules https://github.com/<you>/mcahub
-dotnet run --project src/McadiffHub          # serves http://localhost:5080
+dotnet run --project src/McaHub          # serves http://localhost:5080
 ```
 
 A self-contained binary for your OS (no SDK needed) is attached to each [GitHub Release](../../releases).
@@ -215,7 +215,7 @@ regular user — an admin must adopt it, or you can open a supervised migration 
    ```
 
    `.env` is gitignored and auto-loaded at startup (your shell environment still wins over it).
-4. **Run** from the hub root: `dotnet run --project src/McadiffHub`. The log should read
+4. **Run** from the hub root: `dotnet run --project src/McaHub`. The log should read
    `auth: accounts (github OAuth)`. Visit <http://localhost:5080>, click **Sign in**, then mint a token at
    `/account` for `mcadiff push`.
 
@@ -257,7 +257,7 @@ The build tracks the pinned core submodule, so an upgrade is two pulls:
 ```sh
 # 1. stop the hub   2. back up hub.json
 git pull && git submodule update --init --recursive   # hub + core
-dotnet build src/McadiffHub -c Release                 # rollback: `git checkout <old> && git submodule update`
+dotnet build src/McaHub -c Release                 # rollback: `git checkout <old> && git submodule update`
 # 3. start the hub
 ```
 
@@ -292,7 +292,7 @@ rate-limit-exempt for liveness probes — don't block it at the proxy.
   via the core's `BlockStateDecoder`), map it to a color, then apply north-facing height shading. Hand-rolled
   PNG writer (zlib via `ZLibStream` + a CRC32), no image dependency. Cached per immutable commit like the
   world cache. A cold render takes a few seconds, so the pages show a "Generating map…" spinner and reveal
-  the image once it loads (the scrubber re-shows it on each step). `dotnet run --project src/McadiffHub --
+  the image once it loads (the scrubber re-shows it on each step). `dotnet run --project src/McaHub --
   render <worldDir> <out.png>` renders one offline.
 - `Auth` + `HubDb` — identity and the tiny JSON account store. `Auth` wires the framework's cookie + OAuth
   handlers (no third-party package), splits web identity (cookie) from CLI identity (Bearer PAT), and holds

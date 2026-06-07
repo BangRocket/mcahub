@@ -51,9 +51,9 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Publish self-contained
         run: |
-          dotnet publish src/McadiffHub/McadiffHub.csproj -c Release -r ${{ matrix.rid }} \
+          dotnet publish src/McaHub/McaHub.csproj -c Release -r ${{ matrix.rid }} \
             --self-contained true -p:PublishSingleFile=true -o publish
-          tar czf "mcadiff-hub-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz" -C publish .
+          tar czf "mcahub-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz" -C publish .
       - uses: softprops/action-gh-release@v2
         with:
-          files: mcadiff-hub-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz
+          files: mcahub-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz
