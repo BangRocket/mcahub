@@ -11,7 +11,7 @@ timelines, semantic diffs, grief forensics, rendered maps, and a world explorer.
 ## Hard dependency: mcadiff submodule
 
 The single project references the mcadiff core **in-process** via a git submodule at `./mca-git`:
-`src/McadiffHub/McadiffHub.csproj` → `..\..\mca-git\src\McaDiff\McaDiff.csproj`. A plain
+`src/McaHub/McaHub.csproj` → `..\..\mca-git\src\McaDiff\McaDiff.csproj`. A plain
 `git clone` of this repo leaves the submodule empty and the build fails with CS0246 errors
 (`Repository`, `RemoteService`, etc. not found). Clone with `--recurse-submodules`, or run
 `git submodule update --init` after cloning. To pull upstream mcadiff changes later:
@@ -23,9 +23,9 @@ Types like `Repository`, `RemoteService`, `RepoDiffer`, `GriefReport`, `WorldQue
 ## Commands
 
 ```sh
-dotnet build src/McadiffHub                          # build (.NET 10 SDK required)
-dotnet run --project src/McadiffHub                  # serve http://localhost:5080
-dotnet run --project src/McadiffHub -- render <worldDir> <out.png>   # offline map render, no server
+dotnet build src/McaHub                          # build (.NET 10 SDK required)
+dotnet run --project src/McaHub                  # serve http://localhost:5080
+dotnet run --project src/McaHub -- render <worldDir> <out.png>   # offline map render, no server
 ```
 
 There is **no test project** in this repo (the mcadiff core has its own tests in its repo).
@@ -38,7 +38,7 @@ sign in at `/auth/dev`.
 
 ## Architecture
 
-One ASP.NET Core project (`src/McadiffHub/`, ~3150 lines across 19 files, no NuGet packages beyond the
+One ASP.NET Core project (`src/McaHub/`, ~3150 lines across 19 files, no NuGet packages beyond the
 framework — even the PNG encoder is hand-rolled). `Program.cs` wires everything; each file is one subsystem:
 
 - **`Transport.cs`** — maps the mcadiff HTTP protocol (`/r/{repo}/info/refs`, `/objects`, `/pack`,

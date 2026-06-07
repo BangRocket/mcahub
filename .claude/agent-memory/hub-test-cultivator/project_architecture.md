@@ -1,6 +1,6 @@
 ---
 name: project-architecture
-description: Role ladder, full route map, trust boundaries, and key file locations for mcadiff-hub
+description: Role ladder, full route map, trust boundaries, and key file locations for mcahub
 metadata:
   type: project
 ---
@@ -73,16 +73,16 @@ Folds: owner check first, then max(direct collab grant, any team grant for user'
 - NBT/packs parsed only via core's SafeInflate / NbtDepthGuard / PathGuard.Confine
 
 ## File locations
-- Auth: src/McadiffHub/Auth.cs
-- HubDb: src/McadiffHub/HubDb.cs
-- Transport: src/McadiffHub/Transport.cs
-- Pages: src/McadiffHub/Pages.cs
-- RepoStore: src/McadiffHub/RepoStore.cs
-- MapRenderer: src/McadiffHub/MapRenderer.cs
-- MapCache: src/McadiffHub/MapCache.cs
-- WorldCache: src/McadiffHub/WorldCache.cs
-- Program: src/McadiffHub/Program.cs
-- Html helpers: src/McadiffHub/Html.cs
+- Auth: src/McaHub/Auth.cs
+- HubDb: src/McaHub/HubDb.cs
+- Transport: src/McaHub/Transport.cs
+- Pages: src/McaHub/Pages.cs
+- RepoStore: src/McaHub/RepoStore.cs
+- MapRenderer: src/McaHub/MapRenderer.cs
+- MapCache: src/McaHub/MapCache.cs
+- WorldCache: src/McaHub/WorldCache.cs
+- Program: src/McaHub/Program.cs
+- Html helpers: src/McaHub/Html.cs
 
 **Why:** Needed to keep authz matrix complete as routes/roles evolve.
 **How to apply:** When a new route or role appears, cross-reference this map and expand the test matrix.

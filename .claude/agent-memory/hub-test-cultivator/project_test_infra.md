@@ -6,7 +6,7 @@ metadata:
 ---
 
 ## Current state
-- Zero test project in mcadiff-hub (CLAUDE.md confirms: "There is no test project in this repo").
+- Zero test project in mcahub (CLAUDE.md confirms: "There is no test project in this repo").
 - Single CI check: render smoke in .github/workflows/ci.yml — runs the render CLI against core's real 1.21 sample world, checks PNG is non-empty. Exercises MapRenderer + core RegionFile/ChunkCodec but nothing else.
 
 ## Core's test conventions (mca-git)
@@ -18,15 +18,15 @@ metadata:
 - No sleeps — deterministic sync via in-memory fakes (InMemoryBucket) or direct calls
 
 ## Planned hub test project
-- Location: tests/McadiffHub.Tests/McadiffHub.Tests.csproj
+- Location: tests/McaHub.Tests/McaHub.Tests.csproj
 - Framework: xUnit + Microsoft.AspNetCore.Mvc.Testing (WebApplicationFactory<Program>)
-- ProjectReference: src/McadiffHub/McadiffHub.csproj (which transitively pulls the core)
+- ProjectReference: src/McaHub/McaHub.csproj (which transitively pulls the core)
 - Integration approach: inject temp data dir, temp cache dir, temp hub.json via env vars or IConfiguration override in WebApplicationFactory
 - Auth seeding: use MCAHUB_DEV_LOGIN=1 + POST /auth/dev to get a real session cookie, then use that cookie in subsequent requests
 - CSRF tokens: read form field from a GET response before POSTing (real token flow, not mocked)
 
 ## CI addition needed
-- New job "test" in ci.yml: dotnet test tests/McadiffHub.Tests -c Release
+- New job "test" in ci.yml: dotnet test tests/McaHub.Tests -c Release
 - Must check out both repos (same side-by-side pattern as existing build job)
 - Run on both ubuntu-latest and windows-latest (path sensitivity matters)
 

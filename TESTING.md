@@ -1,6 +1,6 @@
 # Testing guide
 
-mcadiff-hub has effectively no tests yet beyond a single CI render-smoke. This document is
+mcahub has effectively no tests yet beyond a single CI render-smoke. This document is
 the **strategy** we're building toward, not a description of what exists. The test project is
 stood up in its own issue; the suites below are filed against it. It's written now so that
 every test added grows in the same direction.

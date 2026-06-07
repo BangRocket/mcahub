@@ -1,6 +1,6 @@
 ---
 name: arch-rendering-path
-description: Key file locations, constants, allocation order, and call graph for the untrusted-NBT-to-image path in mcadiff-hub
+description: Key file locations, constants, allocation order, and call graph for the untrusted-NBT-to-image path in mcahub
 metadata:
   type: project
 ---
@@ -8,11 +8,11 @@ metadata:
 ## Rendering Path Architecture
 
 ### File Locations (hub)
-- `src/McadiffHub/MapRenderer.cs` — surface scan, PNG encoder, color mapping
-- `src/McadiffHub/MapCache.cs` — per-commit PNG cache (lock + tmp+rename pattern)
-- `src/McadiffHub/WorldCache.cs` — per-commit world materialization cache
-- `src/McadiffHub/Pages.cs:386` — `Map()` handler for `/r/{repo}/map/{reff}.png`
-- `src/McadiffHub/Transport.cs` — write endpoint; no size/rate limiting on push
+- `src/McaHub/MapRenderer.cs` — surface scan, PNG encoder, color mapping
+- `src/McaHub/MapCache.cs` — per-commit PNG cache (lock + tmp+rename pattern)
+- `src/McaHub/WorldCache.cs` — per-commit world materialization cache
+- `src/McaHub/Pages.cs:386` — `Map()` handler for `/r/{repo}/map/{reff}.png`
+- `src/McaHub/Transport.cs` — write endpoint; no size/rate limiting on push
 
 ### File Locations (core, submodule at ./mca-git per ADR-0006)
 - `src/McaDiff/Diff/BlockStateDecoder.cs` — palette decode, packed long-array decode

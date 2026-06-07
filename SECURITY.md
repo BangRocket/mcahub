@@ -33,23 +33,23 @@ modes (open / shared-token / OAuth accounts) are described in the README under "
 
 ## Start here (the files that matter)
 
-- **`src/McadiffHub/Auth.cs`** — the crux. OAuth wiring (PKCE, state, userinfo→`provider:id`), cookie session,
+- **`src/McaHub/Auth.cs`** — the crux. OAuth wiring (PKCE, state, userinfo→`provider:id`), cookie session,
   **Bearer-token identity** (`Identify` — master token via `CryptographicOperations.FixedTimeEquals`, else
   per-user PAT), the **CSRF** helpers (`CsrfField`/`CsrfOk`), the **access-control predicates**
   (`CanRead`/`CanWrite`/`CanManageSettings`/`CanManagePeople`, all routed through `HubDb.RoleOf`), and the
   open-redirect guard `Local`.
-- **`src/McadiffHub/Transport.cs`** — the network protocol. Every GET checks `Readable`; every write goes
+- **`src/McaHub/Transport.cs`** — the network protocol. Every GET checks `Readable`; every write goes
   through `Write` (auth + `CanWrite` + auto-create + **ownership claim-on-first-push**).
-- **`src/McadiffHub/HubDb.cs`** — the account store. **Token hashing** (`mcahub_` + a 40-char base64url string from 30 random bytes, stored
+- **`src/McaHub/HubDb.cs`** — the account store. **Token hashing** (`mcahub_` + a 40-char base64url string from 30 random bytes, stored
   SHA-256, plaintext shown once, looked up by hash), role/rank resolution, collaborators + teams.
-- **`src/McadiffHub/RepoStore.cs`** — `IsValidName` regex (the path-traversal guard for repo names) and
+- **`src/McaHub/RepoStore.cs`** — `IsValidName` regex (the path-traversal guard for repo names) and
   `PathOf`.
-- **`src/McadiffHub/Pages.cs`** — web handlers; `CanSee` gates private repos to 404; the `/r/{repo}/map/{ref}.png`
+- **`src/McaHub/Pages.cs`** — web handlers; `CanSee` gates private repos to 404; the `/r/{repo}/map/{ref}.png`
   endpoint; the time-machine page embeds backup JSON (`System.Text.Json`, captions via `textContent`).
-- **`src/McadiffHub/MapRenderer.cs` + `MapCache.cs`** — the **untrusted-NBT-to-image** path: decodes
+- **`src/McaHub/MapRenderer.cs` + `MapCache.cs`** — the **untrusted-NBT-to-image** path: decodes
   attacker-pushed chunk data and allocates image buffers from it.
-- **`src/McadiffHub/WorldCache.cs`** — materializes pushed worlds to disk (`cache/<repo>/<commit>`).
-- **`src/McadiffHub/Program.cs`** — `LoadDotEnv`, the `MCAHUB_BEHIND_PROXY` forwarded-headers switch, the
+- **`src/McaHub/WorldCache.cs`** — materializes pushed worlds to disk (`cache/<repo>/<commit>`).
+- **`src/McaHub/Program.cs`** — `LoadDotEnv`, the `MCAHUB_BEHIND_PROXY` forwarded-headers switch, the
   `render` CLI mode.
 
 ## Controls already in place (what's intended)

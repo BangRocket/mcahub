@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/McaHub/McaHub.csproj" />
+    <Project Path="src/Sidecar/McaHub.Sidecar.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/McaHub.Tests/McaHub.Tests.csproj" />
+  </Folder>
+  <Project Path="mca-git/src/McaDiff/McaDiff.csproj" />
+</Solution>

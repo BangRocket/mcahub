@@ -1,6 +1,6 @@
 ---
 name: operability-findings
-description: All filed operator operability findings for mcadiff-hub, with severity and defuser notes
+description: All filed operator operability findings for mcahub, with severity and defuser notes
 metadata:
   type: project
 ---

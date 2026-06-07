@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>McaHub</RootNamespace>
+    <!-- McaDiff ships as a CLI Exe; we reference it as a library. Suppress the apphost-reference note. -->
+    <NoWarn>$(NoWarn);NETSDK1112</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- In-process reference to the mcadiff core (vendored as a git submodule at ./mca-git).
+         Gives the rich diff/query/repo types directly, instead of scraping CLI text. -->
+    <ProjectReference Include="..\..\mca-git\src\McaDiff\McaDiff.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="McaHub.Tests" />
+  </ItemGroup>
+
+</Project>

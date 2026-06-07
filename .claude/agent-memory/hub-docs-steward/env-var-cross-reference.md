@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-Source of truth: `src/McadiffHub/Program.cs` lines 21-39 and `src/McadiffHub/Auth.cs` lines 33-48.
+Source of truth: `src/McaHub/Program.cs` lines 21-39 and `src/McaHub/Auth.cs` lines 33-48.
 
 Last verified: 2026-06-05
 

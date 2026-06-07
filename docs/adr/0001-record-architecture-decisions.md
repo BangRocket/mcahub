@@ -5,7 +5,7 @@
 
 ## Context
 
-mcadiff-hub has accumulated several load-bearing decisions that aren't obvious from the
+mcahub has accumulated several load-bearing decisions that aren't obvious from the
 code: the zero-dependency stance, the sibling coupling to the mcadiff core, the JSON-file
 account store, the single-role-source authorization model, the deliberate choice to stay a
 single process. Today these live as prose in `CLAUDE.md` and `SECURITY.md`, or only in
