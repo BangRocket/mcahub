@@ -1,4 +1,3 @@
-using McaDiff.Repo;
 using McaHub.Sidecar;
 
 // mcahub sidecar: watch a Minecraft world directory and auto-push backups to a hub — no CLI, no cron.
@@ -32,12 +31,12 @@ if (!Directory.Exists(world))
 
 string? token = Env("MCASIDE_TOKEN") ?? Arg(args, "--token");
 string branch = Env("MCASIDE_BRANCH") ?? "main";
-string author = Env("MCASIDE_AUTHOR") ?? "mcahub-sidecar";
 string repoPath = Env("MCASIDE_REPO") ?? Arg(args, "--repo") ?? world.TrimEnd('/', '\\') + ".mcagit";
+string mcagit = Env("MCAGIT_BIN") ?? "mcagit";
 int interval = int.TryParse(Env("MCASIDE_INTERVAL"), out int iv) && iv > 0 ? iv : 300;
 int debounce = int.TryParse(Env("MCASIDE_DEBOUNCE"), out int db) && db > 0 ? db : 15;
 
-Repository repo = OpenOrInit(repoPath);
+if (!Directory.Exists(Path.Combine(repoPath, "objects"))) Mcagit.Run(mcagit, ["init", repoPath]); // open-or-init
 Log($"watching {world} → {remote} (every {interval}s, debounce {debounce}s)");
 
 var gate = new object();
@@ -47,9 +46,10 @@ void TryBackup(string why)
     {
         try
         {
-            string? commit = Backup.Snapshot(repo, world, branch, author, $"auto: {why}");
+            string? commit = Backup.Snapshot(mcagit, repoPath, world, $"auto: {why}");
             if (commit is null) { Log($"no changes ({why})"); return; }
-            RemoteOps.Push(repo, remote, branch, force: false, token);
+            var (pc, _, perr) = Mcagit.Run(mcagit, ["-C", repoPath, "push", remote, branch], token);
+            if (pc != 0) throw new InvalidOperationException($"push exited {pc}: {perr.Trim()}");
             Log($"backed up {commit[..10]} → {remote} ({why})");
         }
         catch (Exception e)
@@ -77,9 +77,3 @@ done.Wait();
 TryBackup("shutdown"); // one last backup on the way out
 Log("stopped");
 return 0;
-
-static Repository OpenOrInit(string path)
-{
-    try { return Repository.Open(path); }
-    catch { return Repository.Init(path); }
-}

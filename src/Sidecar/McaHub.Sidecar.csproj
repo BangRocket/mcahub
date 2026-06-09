@@ -9,9 +9,6 @@
     <RootNamespace>McaHub.Sidecar</RootNamespace>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- In-process use of the mcadiff core (snapshot/commit/push), the same submodule the hub references. -->
-    <ProjectReference Include="..\..\mca-git\src\McaDiff\McaDiff.csproj" />
-  </ItemGroup>
+  <!-- The sidecar shells the Rust `mcagit` binary (init/commit/push) — no in-process .NET core. -->
 
 </Project>

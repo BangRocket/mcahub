@@ -6,5 +6,4 @@
   <Folder Name="/tests/">
     <Project Path="tests/McaHub.Tests/McaHub.Tests.csproj" />
   </Folder>
-  <Project Path="mca-git/src/McaDiff/McaDiff.csproj" />
 </Solution>

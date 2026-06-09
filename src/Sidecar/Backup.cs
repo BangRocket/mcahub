@@ -1,24 +1,41 @@
-using McaDiff.Repo;
+using System.Diagnostics;
 
 namespace McaHub.Sidecar;
 
 /// <summary>
-/// The snapshot-and-commit step the sidecar runs on each tick. Snapshots a world directory into a local
-/// mcadiff repo and commits it on <paramref name="branch"/> — but only if the world actually changed
-/// (mcadiff content-addresses the tree, so an unchanged world produces the same tree and we skip the
-/// commit). Pure and deterministic, so it's unit-tested without a server; the network push lives in the
-/// loop (<see cref="RemoteOps.Push"/>).
+/// The snapshot-and-commit step the sidecar runs each tick, via the Rust <c>mcagit</c> binary:
+/// <c>mcagit -C &lt;repo&gt; commit -m &lt;msg&gt; &lt;world&gt;</c>. mcagit content-addresses the tree, so an
+/// unchanged world is a no-op (empty output) and the push is skipped.
 /// </summary>
 public static class Backup
 {
     /// <summary>Returns the new commit hash, or null when the world is unchanged since the last backup.</summary>
-    public static string? Snapshot(Repository repo, string worldDir, string branch, string author, string message)
+    public static string? Snapshot(string mcagit, string repoDir, string worldDir, string message)
     {
-        string tree = repo.WriteManifest(Snapshotter.Snapshot(repo, worldDir));
-        string? head = repo.ReadBranch(branch);
-        if (head is not null && repo.ReadCommit(head).Tree == tree) return null; // nothing changed
-        string commit = repo.CreateCommit(tree, head is null ? [] : [head], message, author);
-        repo.WriteBranch(branch, commit);
-        return commit;
+        var (code, outp, err) = Mcagit.Run(mcagit, ["-C", repoDir, "commit", "-m", message, worldDir]);
+        if (code != 0) throw new InvalidOperationException($"mcagit commit exited {code}: {err.Trim()}");
+        string hash = outp.Trim();
+        return hash.Length > 0 ? hash : null; // empty stdout ⇒ "nothing to commit"
+    }
+}
+
+/// <summary>Minimal <c>mcagit</c> process runner for the sidecar (the binary is the Rust engine).</summary>
+internal static class Mcagit
+{
+    public static (int Code, string Out, string Err) Run(string binary, string[] args, string? token = null)
+    {
+        var psi = new ProcessStartInfo(binary)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (string a in args) psi.ArgumentList.Add(a);
+        if (token is { Length: > 0 }) psi.Environment["MCAGIT_TOKEN"] = token;
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException($"failed to launch {binary}");
+        string o = p.StandardOutput.ReadToEnd();
+        string e = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        return (p.ExitCode, o, e);
     }
 }
