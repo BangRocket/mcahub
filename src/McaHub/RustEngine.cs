@@ -50,6 +50,14 @@ public sealed class RustEngine(string binary)
         return list;
     }
 
+    /// <summary>Commit metadata (tree/parents/message/author/time) via <c>cat-file</c>.</summary>
+    public CommitMeta ReadCommit(string repoDir, string commit)
+    {
+        var (_, outp, _) = Run(["-C", repoDir, "cat-file", commit], allow: [0]);
+        return JsonSerializer.Deserialize<CommitMeta>(outp, Json)
+            ?? throw new InvalidOperationException($"unreadable commit {commit}");
+    }
+
     // ---- render data (the web UI) ----
 
     /// <summary>Semantic diff of two materialized worlds (exit 1 = "differs" is normal).</summary>
@@ -125,6 +133,17 @@ public sealed class RustEngine(string binary)
 }
 
 // ---- DTOs matching `mcagit … --json` ----
+
+public sealed record CommitMeta(
+    [property: JsonPropertyName("tree")] string Tree,
+    [property: JsonPropertyName("parents")] IReadOnlyList<string> Parents,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("author")] string Author,
+    [property: JsonPropertyName("time")] string Time)
+{
+    public string? CommitTime => null; // the Rust core carries a single commit time
+    public string? Signature => null;  // commit signing not yet in the Rust core
+}
 
 public sealed record DiffResult([property: JsonPropertyName("files")] IReadOnlyList<FileDiff> Files)
 {

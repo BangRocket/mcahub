@@ -25,8 +25,8 @@ public static class Pages
         // and its IResult is discarded. A block body binds as the rich handler that executes the result.
         app.MapPost("/upload", async (HttpContext ctx) => { return await UploadInspect(ctx, cfg); }); // stateless: extract → render → discard
         app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo, reportEmail));
-        app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, repo, hash));
-        app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
+        app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, rust, cache, repo, hash));
+        app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, rust, cache, repo, a, b));
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
             World(ctx, store, db, cfg, cache, rust, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
         app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, renderQueue, db, cfg, repo, reff))
@@ -582,23 +582,23 @@ public static class Pages
         return Page(name, b.ToString(), chip);
     }
 
-    private static IResult Commit(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string hash)
+    private static IResult Commit(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, WorldCache cache, string name, string hash)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
-        Repository repo = store.Open(name);
-        string commit;
-        try { commit = repo.ResolveRef(hash); } catch { return NotFound("backup", chip); }
-        CommitObject c = repo.ReadCommit(commit);
+        string repoDir = store.PathOf(name);
+        if (rust.RevParse(repoDir, hash) is not { } commit) return NotFound("backup", chip);
+        McaHub.Rust.CommitMeta c = rust.ReadCommit(repoDir, commit);
 
-        WorldDiff diff = CommitDiff(repo, commit, expand: true);
-        GriefSummary g = GriefReport.Analyze(diff);
+        var (oldWorld, newWorld) = CommitWorlds(rust, cache, name, repoDir, commit, ctx.RequestAborted);
+        McaHub.Rust.DiffResult diff = rust.Diff(oldWorld, newWorld);
+        McaHub.Rust.GriefSummary g = rust.Grief(oldWorld, newWorld);
 
         string? parent = c.Parents.Count > 0 ? c.Parents[0] : null;
         var b = new StringBuilder();
         b.Append($"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p>""");
         b.Append($"<h1>Backup {commit[..10]}</h1>");
-        b.Append($"""<p class="cmeta">{E(c.Message)}<br><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Signature is not null ? " · ✓ signed" : "")}</span></p>""");
+        b.Append($"""<p class="cmeta">{E(c.Message)}<br><span class="meta">{E(c.Author)} · {When(c.Time)}</span></p>""");
         b.Append($"""<p class="actions"><a href="/r/{E(name)}/world/{commit}">explore this world</a>{(parent is null ? "" : $""" · <a href="/r/{E(name)}/compare/{parent}/{commit}">compare with previous</a>""")}</p>""");
         // Roll the world back to this backup — completes the headline promise (#24). The map/explorer above
         // is the preview; the restore itself adds a NEW backup (reversible), never an in-place overwrite.
@@ -617,35 +617,36 @@ public static class Pages
         RenderDiff(b, diff, canSeeData);
         // OpenGraph unfurl (#25): the map as the card image. A private world's map endpoint 404s to a
         // crawler (CanSee), so this never leaks a private image — it only unfurls for those who can see it.
-        string desc = g.Destroyed + g.Built + g.Replaced > 0
-            ? $"{g.Destroyed:N0} destroyed · {g.Built:N0} placed · {g.Replaced:N0} replaced"
+        string desc = g.Any
+            ? $"{g.Destroyed:N0} destroyed · {g.Placed:N0} placed · {g.Replaced:N0} replaced"
             : Oneline(c.Message);
         string og = OgTags($"{name} · backup {commit[..10]}", desc, $"{ctx.Request.Scheme}://{ctx.Request.Host}/r/{E(name)}/map/{commit}.png");
         return Page($"Backup {commit[..10]}", b.ToString(), chip, og);
     }
 
-    private static IResult Compare(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string a, string bRef)
+    private static IResult Compare(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, WorldCache cache, string name, string a, string bRef)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
-        Repository repo = store.Open(name);
-        string ca, cb;
-        try { ca = repo.ResolveRef(a); cb = repo.ResolveRef(bRef); } catch { return NotFound("backup", chip); }
+        string repoDir = store.PathOf(name);
+        if (rust.RevParse(repoDir, a) is not { } ca || rust.RevParse(repoDir, bRef) is not { } cb) return NotFound("backup", chip);
 
-        WorldDiff diff = RefDiff(repo, ca, cb, expand: true);
+        string wa = cache.Materialize(name, repoDir, ca, ctx.RequestAborted);
+        string wb = cache.Materialize(name, repoDir, cb, ctx.RequestAborted);
+        McaHub.Rust.DiffResult diff = rust.Diff(wa, wb);
         // Resolve each side's message + time so the page isn't two bare hashes — a grief-hunter needs to
         // confirm they're looking at the right window (#31).
-        CommitObject commitA = repo.ReadCommit(ca), commitB = repo.ReadCommit(cb);
+        McaHub.Rust.CommitMeta commitA = rust.ReadCommit(repoDir, ca), commitB = rust.ReadCommit(repoDir, cb);
         var sb = new StringBuilder();
         sb.Append($"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p>""");
         sb.Append($"<h1>{ca[..10]} → {cb[..10]}</h1>");
         sb.Append($"""
             <div class="maps">
-              <figure><figcaption>before · {ca[..10]}<br><span class="meta">{E(Oneline(commitA.Message))} · {When(commitA.CommitTime ?? commitA.Time)}</span></figcaption>{MapBox($"/r/{E(name)}/map/{ca}.png", "map before")}</figure>
-              <figure><figcaption>after · {cb[..10]}<br><span class="meta">{E(Oneline(commitB.Message))} · {When(commitB.CommitTime ?? commitB.Time)}</span></figcaption>{MapBox($"/r/{E(name)}/map/{cb}.png", "map after")}</figure>
+              <figure><figcaption>before · {ca[..10]}<br><span class="meta">{E(Oneline(commitA.Message))} · {When(commitA.Time)}</span></figcaption>{MapBox($"/r/{E(name)}/map/{ca}.png", "map before")}</figure>
+              <figure><figcaption>after · {cb[..10]}<br><span class="meta">{E(Oneline(commitB.Message))} · {When(commitB.Time)}</span></figcaption>{MapBox($"/r/{E(name)}/map/{cb}.png", "map after")}</figure>
             </div>
             """);
-        RenderGrief(sb, GriefReport.Analyze(diff));
+        RenderGrief(sb, rust.Grief(wa, wb));
         sb.Append("<h2>Changes</h2>");
         if (!diff.HasDifferences) sb.Append("""<p class="empty">No differences between these backups.</p>""");
         bool canSeeData = Auth.CanSeePlayerData(cfg, db, name, Auth.Current(ctx)?.Id, admin: false); // #34
@@ -963,13 +964,13 @@ public static class Pages
 
     private static string Opt(string v, string? sel, string? label = null) => $"""<option value="{v}"{(v == sel ? " selected" : "")}>{E(label ?? v)}</option>""";
 
-    private static void RenderGrief(StringBuilder b, GriefSummary g)
+    private static void RenderGrief(StringBuilder b, McaHub.Rust.GriefSummary g)
     {
-        if (g.Destroyed + g.Built + g.Replaced == 0) return;
+        if (!g.Any) return;
         b.Append("<div class=\"grief\">");
-        b.Append($"""<span class="g-d">{g.Destroyed:N0} destroyed</span> <span class="g-b">{g.Built:N0} placed</span> <span class="g-r">{g.Replaced:N0} replaced</span>""");
-        if (g.Min is { } mn && g.Max is { } mx && g.Center is { } ce)
-            b.Append($"""<div class="g-where">destruction spans ({mn.X},{mn.Y},{mn.Z})–({mx.X},{mx.Y},{mx.Z}), centered ~({ce.X},{ce.Y},{ce.Z})</div>""");
+        b.Append($"""<span class="g-d">{g.Destroyed:N0} destroyed</span> <span class="g-b">{g.Placed:N0} placed</span> <span class="g-r">{g.Replaced:N0} replaced</span>""");
+        if (g.Box is { } box)
+            b.Append($"""<div class="g-where">destruction spans ({box.MinX},{box.MinY},{box.MinZ})–({box.MaxX},{box.MaxY},{box.MaxZ})</div>""");
         if (g.TopDestroyed.Count > 0)
             b.Append("<div class=\"g-top\">most destroyed: " + string.Join(", ", g.TopDestroyed.Select(t => $"{E(Short(t.Block))} ×{t.Count}")) + "</div>");
         b.Append("</div>");
@@ -979,49 +980,43 @@ public static class Pages
 
     private const int MaxFiles = 200, MaxChunks = 80, MaxChanges = 60;
 
-    private static void RenderDiff(StringBuilder b, WorldDiff diff, bool canSeeData)
+    private static void RenderDiff(StringBuilder b, McaHub.Rust.DiffResult diff, bool canSeeData)
     {
-        foreach (FileDiff f in diff.Files.Take(MaxFiles))
+        foreach (var f in diff.Files.Take(MaxFiles))
         {
-            b.Append($"""<div class="file"><div class="fh"><span class="st st-{f.Status.ToString().ToLowerInvariant()}">{f.Status}</span> {E(f.RelativePath)}{(f.ItemCount is { } n ? $" <span class=\"meta\">({n} chunks)</span>" : "")}</div>""");
-            if (f.Error is { } err) b.Append($"""<div class="err">{E(err)}</div>""");
+            b.Append($"""<div class="file"><div class="fh"><span class="st st-{f.Status.ToLowerInvariant()}">{f.Status}</span> {E(f.Path)}{(f.Chunks.Count > 0 ? $" <span class=\"meta\">({f.Chunks.Count} chunks)</span>" : "")}</div>""");
 
             // #34: player data (positions, inventory, sign text) is doxxing material, hidden from non-collaborators
-            // on a public world — same gate the world explorer uses. A whole player-data file (level.dat, playerdata/,
-            // entities/) is suppressed; container/sign (block-entity) and entity changes inside region files are
-            // dropped per-row. Block/biome changes and the grief summary stay public (that's the headline feature).
-            if (!canSeeData && SensitiveFile(f.RelativePath))
+            // on a public world. A whole player-data file (level.dat, playerdata/, entities/) is suppressed;
+            // sensitive node changes inside region files are dropped per-row. Coordinate block changes and the
+            // grief summary stay public (that's the headline feature).
+            if (!canSeeData && SensitiveFile(f.Path))
             {
-                int total = f.Chunks.Sum(ch => ch.Changes.Count) + f.Changes.Count;
+                int total = f.Chunks.Sum(ch => ch.Changes) + f.NodeChanges.Count;
                 b.Append($"""<div class="more">{total} player-data change(s) hidden — visible only to this world's collaborators</div></div>""");
                 continue;
             }
 
-            foreach (ChunkDiff ch in f.Chunks.Take(MaxChunks))
+            foreach (var ch in f.Chunks.Take(MaxChunks))
             {
-                b.Append($"""<div class="chunk">chunk ({ch.Pos.X}, {ch.Pos.Z})</div><ul class="changes">""");
-                int hidden = 0;
-                foreach (NbtChange c in ch.Changes.Take(MaxChanges))
-                {
-                    if (!canSeeData && SensitivePath(c.Path)) { hidden++; continue; }
-                    b.Append(Change(c));
-                }
-                if (hidden > 0) b.Append($"<li class=\"more\">… {hidden} container/sign/entity change(s) hidden</li>");
-                if (ch.Changes.Count > MaxChanges) b.Append($"<li class=\"more\">… {ch.Changes.Count - MaxChanges} more</li>");
+                b.Append($"""<div class="chunk">chunk ({ch.X}, {ch.Z}) <span class="meta">({ch.Changes} change(s))</span></div><ul class="changes">""");
+                foreach (var e in ch.BlockEdits.Take(MaxChanges))
+                    b.Append($"""<li class="ch ch-modified"><code>@{e.X},{e.Y},{e.Z}</code>: {E(e.Old ?? "-")} → {E(e.New ?? "-")}</li>""");
+                if (ch.BlockEdits.Count > MaxChanges) b.Append($"<li class=\"more\">… {ch.BlockEdits.Count - MaxChanges} more block changes</li>");
                 b.Append("</ul>");
             }
             if (f.Chunks.Count > MaxChunks) b.Append($"<div class=\"more\">… {f.Chunks.Count - MaxChunks} more chunks</div>");
-            if (f.Changes.Count > 0)
+            if (f.NodeChanges.Count > 0)
             {
                 b.Append("<ul class=\"changes\">");
                 int hidden = 0;
-                foreach (NbtChange c in f.Changes.Take(MaxChanges))
+                foreach (var c in f.NodeChanges.Take(MaxChanges))
                 {
                     if (!canSeeData && SensitivePath(c.Path)) { hidden++; continue; }
-                    b.Append(Change(c));
+                    b.Append($"""<li class="ch ch-{c.Kind.ToLowerInvariant()}"><code>{E(c.Path)}</code>: {E(c.Kind)}</li>""");
                 }
                 if (hidden > 0) b.Append($"<li class=\"more\">… {hidden} container/sign/entity change(s) hidden</li>");
-                if (f.Changes.Count > MaxChanges) b.Append($"<li class=\"more\">… {f.Changes.Count - MaxChanges} more</li>");
+                if (f.NodeChanges.Count > MaxChanges) b.Append($"<li class=\"more\">… {f.NodeChanges.Count - MaxChanges} more</li>");
                 b.Append("</ul>");
             }
             b.Append("</div>");
@@ -1041,36 +1036,21 @@ public static class Pages
     // No public block_states/biome/section path contains "entit", so grief block changes are never redacted.
     internal static bool SensitivePath(string path) => path.Contains("entit", StringComparison.OrdinalIgnoreCase);
 
-    private static string Change(NbtChange c)
+    /// <summary>Materialize a commit's world + its parent's (an empty dir for the root) so the diff/grief
+    /// engine can compare them. Both are cached per repo+commit.</summary>
+    private static (string OldWorld, string NewWorld) CommitWorlds(McaHub.Rust.RustEngine rust, WorldCache cache, string name, string repoDir, string commit, CancellationToken ct)
     {
-        string kind = c.Kind.ToString().ToLowerInvariant();
-        string val = c.Kind switch
-        {
-            ChangeKind.Added => $"+ {E(c.NewValue)}",
-            ChangeKind.Removed => $"− {E(c.OldValue)}",
-            _ => $"{E(c.OldValue)} → {E(c.NewValue)}",
-        };
-        string note = c.Note is { } n ? $" <span class=\"note\">({E(n)})</span>" : "";
-        return $"""<li class="ch ch-{kind}"><code>{E(c.Path)}</code>: {val}{note}</li>""";
+        string newWorld = cache.Materialize(name, repoDir, commit, ct);
+        string? parent = rust.RevParse(repoDir, commit + "^");
+        string oldWorld = parent is not null ? cache.Materialize(name, repoDir, parent, ct) : EmptyWorldDir();
+        return (oldWorld, newWorld);
     }
 
-    private static WorldDiff CommitDiff(Repository repo, string commit, bool expand)
+    private static string EmptyWorldDir()
     {
-        string? parent = repo.ReadCommit(commit).Parents is [string p, ..] ? p : null;
-        Manifest mOld = parent is not null ? repo.ReadManifest(repo.ReadCommit(parent).Tree) : new Manifest();
-        Manifest mNew = repo.ReadManifest(repo.ReadCommit(commit).Tree);
-        return RepoDiffer.Diff(
-            parent is null ? "(root)" : parent[..10], mOld, new RepoDiffer.CommitSource(repo, mOld),
-            commit[..10], mNew, new RepoDiffer.CommitSource(repo, mNew), new DiffRunOptions(ExpandArrays: expand));
-    }
-
-    private static WorldDiff RefDiff(Repository repo, string ca, string cb, bool expand)
-    {
-        Manifest mA = repo.ReadManifest(repo.ReadCommit(ca).Tree);
-        Manifest mB = repo.ReadManifest(repo.ReadCommit(cb).Tree);
-        return RepoDiffer.Diff(
-            ca[..10], mA, new RepoDiffer.CommitSource(repo, mA),
-            cb[..10], mB, new RepoDiffer.CommitSource(repo, mB), new DiffRunOptions(ExpandArrays: expand));
+        string dir = Path.Combine(Path.GetTempPath(), "mcahub-empty-world");
+        Directory.CreateDirectory(dir);
+        return dir;
     }
 
     private static string Oneline(string msg) { int nl = msg.IndexOf('\n'); return nl < 0 ? msg : msg[..nl]; }
