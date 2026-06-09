@@ -15,7 +15,7 @@ public static class Pages
     /// <summary>Request-timeout policy name applied to the cold-render map endpoint (registered in Program).</summary>
     public const string RenderTimeoutPolicy = "render";
 
-    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, RenderQueue renderQueue, HubDb db, Auth.Config cfg, AuditLog audit, string? reportEmail = null)
+    public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, RenderQueue renderQueue, HubDb db, Auth.Config cfg, AuditLog audit, McaHub.Rust.RustEngine rust, string? reportEmail = null)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/aup", (HttpContext ctx) => Aup(ctx, cfg, reportEmail));
@@ -28,7 +28,7 @@ public static class Pages
         app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, repo, hash));
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, repo, a, b));
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
-            World(ctx, store, db, cfg, cache, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
+            World(ctx, store, db, cfg, cache, rust, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
         app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, renderQueue, db, cfg, repo, reff))
             .WithRequestTimeout(RenderTimeoutPolicy); // hard server-side deadline on cold renders
         app.MapGet("/r/{repo}/timeline", (string repo, HttpContext ctx) => Scrub(ctx, store, db, cfg, repo));
@@ -654,16 +654,13 @@ public static class Pages
     }
 
     private static IResult World(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, WorldCache cache,
-        string name, string refName, string? findKind, string? q)
+        McaHub.Rust.RustEngine rust, string name, string refName, string? findKind, string? q)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
-        Repository repo = store.Open(name);
-        string commit;
-        try { commit = repo.ResolveRef(refName); } catch { return NotFound("backup", chip); }
+        if (rust.RevParse(store.PathOf(name), refName) is not { } commit) return NotFound("backup", chip);
 
         string worldDir = cache.Materialize(name, store.PathOf(name), commit, ctx.RequestAborted); // immutable cache; first view materializes
-        var wq = new WorldQuery(worldDir);
 
         var sb = new StringBuilder();
         sb.Append($"""<p class="back"><a href="/r/{E(name)}/commit/{commit}">← backup {commit[..10]}</a></p>""");
@@ -674,16 +671,20 @@ public static class Pages
         // so in accounts mode they're shown only to collaborators (#34). Open/LAN mode shows everything.
         bool canSeeData = Auth.CanSeePlayerData(cfg, db, name, Auth.Current(ctx)?.Id, admin: false);
 
-        var players = wq.Players().ToList();
+        var players = rust.Players(worldDir);
         sb.Append("<h2>Players</h2>");
         if (players.Count == 0) sb.Append("""<p class="empty">No player data.</p>""");
         else
         {
             sb.Append("<ul class=\"branches\">");
-            foreach (PlayerHit p in players)
+            foreach (var p in players)
+            {
+                string loc = p.Pos is { Length: >= 3 } ? $"({p.Pos[0]:0.#},{p.Pos[1]:0.#},{p.Pos[2]:0.#})" : "(?)";
+                string hp = p.Health is { } hv ? $" · {hv:0.#} hp" : "";
                 sb.Append(canSeeData
-                    ? $"""<li>{E(p.Source)} <span class="meta">({p.X:0.#},{p.Y:0.#},{p.Z:0.#}) [{E(p.Dimension)}]{(p.Health >= 0 ? $" · {p.Health:0.#} hp" : "")}</span></li>"""
+                    ? $"""<li>{E(p.Source)} <span class="meta">{loc} [{E(p.Dimension ?? "?")}]{hp}</span></li>"""
                     : $"""<li>{E(p.Source)} <span class="meta">(location hidden)</span></li>""");
+            }
             sb.Append("</ul>");
         }
 
@@ -704,9 +705,9 @@ public static class Pages
             {
                 sb.Append("<ul class=\"changes\">");
                 int n = 0;
-                if (findKind == "entity") foreach (EntityHit h in wq.Entities(q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X:0.#},{h.Y:0.#},{h.Z:0.#}){(h.CustomName is null ? "" : $" \"{E(h.CustomName)}\"")}</li>"""); n++; }
-                else if (findKind == "block-entity") foreach (BlockEntityHit h in wq.BlockEntities(q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X},{h.Y},{h.Z}){(h.ItemCount > 0 ? $" · {h.ItemCount} items" : "")}</li>"""); n++; }
-                else if (findKind == "sign") foreach (SignHit h in wq.Signs(q).Take(300)) { sb.Append($"""<li>({h.X},{h.Y},{h.Z}) "{E(string.Join(" / ", h.Lines))}"</li>"""); n++; }
+                if (findKind == "entity") foreach (var h in rust.Find(worldDir, "entity", q).Take(300)) { string loc = h.Pos is { Length: >= 3 } ? $"({h.Pos[0]:0.#},{h.Pos[1]:0.#},{h.Pos[2]:0.#})" : $"({h.X},{h.Y},{h.Z})"; sb.Append($"""<li><code>{E(h.Id)}</code> {loc}</li>"""); n++; }
+                else if (findKind == "block-entity") foreach (var h in rust.Find(worldDir, "block-entity", q).Take(300)) { sb.Append($"""<li><code>{E(h.Id)}</code> ({h.X},{h.Y},{h.Z})</li>"""); n++; }
+                else if (findKind == "sign") foreach (var h in rust.Find(worldDir, "sign").Where(s => s.Text is { } t && string.Join(" ", t).Contains(q, StringComparison.OrdinalIgnoreCase)).Take(300)) { sb.Append($"""<li>({h.X},{h.Y},{h.Z}) "{E(string.Join(" / ", h.Text ?? []))}"</li>"""); n++; }
                 if (n == 0) sb.Append("""<li class="empty">No matches.</li>""");
                 sb.Append("</ul>");
             }

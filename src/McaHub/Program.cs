@@ -179,7 +179,7 @@ int maxWorldsPerUser = int.TryParse(app.Configuration["MaxWorldsPerUser"] ?? Env
 string? discordWebhook = app.Configuration["DiscordWebhook"] ?? Environment.GetEnvironmentVariable("MCAHUB_DISCORD_WEBHOOK"); // grief alerts on push (#25)
 Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser, discordWebhook); // mcadiff clone/fetch/push under /r/{repo}/…
 string? reportEmail = app.Configuration["ReportEmail"] ?? Environment.GetEnvironmentVariable("MCAHUB_REPORT_EMAIL"); // abuse-report address (#35)
-Pages.MapPages(app, store, cache, maps, renderQueue, db, auth, audit, reportEmail); // the web UI (browse + compare + world-state + map + account)
+Pages.MapPages(app, store, cache, maps, renderQueue, db, auth, audit, rust, reportEmail); // the web UI (browse + compare + world-state + map + account)
 
 // Liveness probe for proxies/orchestrators — intentionally unauthenticated + rate-limit exempt (#32).
 // Document that it must not be blocked at the proxy.
