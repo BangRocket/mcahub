@@ -1,15 +1,15 @@
 # mcahub
 
-**GitHub, for Minecraft worlds.** A self-hostable platform that hosts [`mcadiff`](https://github.com/BangRocket/mcadiff)
+**GitHub, for Minecraft worlds.** A self-hostable platform that hosts [`mcagit`](https://github.com/BangRocket/mcagit)
 repositories (version-controlled worlds) over HTTP and gives them a web face: push a world, browse its
 backup timeline, and see the **semantic diff** of any backup — which chunks, blocks, and entities
 changed, and *where the griefing happened* — none of which a generic git host can show.
 
-If mcadiff is git for worlds, this is the hub you push them to.
+If mcagit is git for worlds, this is the hub you push them to.
 
 ## What it does
 
-- **Hosts worlds over HTTP** — `mcadiff clone | fetch | push http://<hub>/r/<name>` works against it.
+- **Hosts worlds over HTTP** — `mcagit clone | fetch | push http://<hub>/r/<name>` works against it.
   Pushing to a new name **auto-creates** the world.
 - **Web UI** — a repo list, each world's branches + backup timeline, a backup view that combines the
   file/chunk/block diff with a "what happened here" grief summary (destroyed / placed / replaced, the
@@ -17,8 +17,10 @@ If mcadiff is git for worlds, this is the hub you push them to.
   forensics between arbitrary backups), a **world explorer** (players + find an entity / block entity /
   sign), a **rendered top-down map** per backup (with a before/after pair on the compare page), and a
   **time-machine scrubber** that slides the map across a world's whole backup history.
-- **In-process** — references the mcadiff core directly, so it renders the real `WorldDiff` / `GriefReport`
-  structures instead of scraping CLI text.
+- **Powered by the Rust `mcagit` engine** — the C# web layer drives the `mcagit` binary out-of-process: it
+  reverse-proxies the transport to a co-located `mcagit serve` sidecar, and renders the web UI from
+  `mcagit diff/where-changed/players/find --json` + `mcagit render`. No in-process .NET core; worlds are
+  stored in mcagit's native (blake3/zstd) object format.
 - **Accounts (optional)** — OAuth sign-in (GitHub by default, any OAuth2 provider via config), per-user
   **personal access tokens** for the CLI, **public/private** worlds, and sharing via per-repo
   **collaborators** (read/write) and **teams** (grant a whole group at once). Off by default; the hub stays
@@ -28,7 +30,7 @@ If mcadiff is git for worlds, this is the hub you push them to.
 
 ### Docker (no SDK)
 
-The quickest way — no .NET SDK, no submodule checkout:
+The quickest way:
 
 ```sh
 docker compose up          # serves http://localhost:5080
@@ -38,29 +40,29 @@ docker compose up          # serves http://localhost:5080
 It runs as a non-root user with a read-only root filesystem and your data on a named volume.
 **`docker compose` defaults to open mode** (anyone reachable can read **and** push) — fine for a trusted
 LAN; set `MCAHUB_TOKEN` or the `MCAHUB_OAUTH_*` vars before exposing it publicly (see the compose file).
-Building the image locally needs the submodule: `git submodule update --init --recursive` first.
+The image bundles the Rust **`mcagit`** binary (the hub spawns it for transport + rendering); see the
+`Dockerfile` for how it's built/copied in.
 
 ### From source
 
-Needs the **.NET 10 SDK**. The `mcadiff` core is vendored as a git submodule at `./mca-git` — clone
-with `--recurse-submodules` (or run `git submodule update --init` afterward) or the build fails with
-~40 **`CS0246`** type-not-found errors (`Repository`, `RemoteService`, …). The real cause is the
-**`MSB4019`** warning above them — *"imported project `…/mca-git/…` not found"*; if you see those,
-you cloned without the submodule — run `git submodule update --init --recursive` and rebuild.
+Needs the **.NET 10 SDK** and the Rust **`mcagit`** binary — the hub drives it out-of-process (no more
+.NET-core submodule). Build mcagit (`cargo build --release` in the mcagit repo) and put it on `PATH`, or
+point `MCAGIT_BIN` at it:
 
 ```sh
-git clone --recurse-submodules https://github.com/<you>/mcahub
+git clone https://github.com/<you>/mcahub
+export MCAGIT_BIN=/path/to/mcagit/target/release/mcagit   # or just have `mcagit` on PATH
 dotnet run --project src/McaHub          # serves http://localhost:5080
 ```
 
 A self-contained binary for your OS (no SDK needed) is attached to each [GitHub Release](../../releases).
 
-Then point a client at it:
+Then point a client at it (the same `mcagit` binary, as a client):
 
 ```sh
-mcadiff init MyWorld.mcagit --worktree path/to/world
-mcadiff -C MyWorld.mcagit commit -m "first backup"
-mcadiff -C MyWorld.mcagit push http://localhost:5080/r/myworld main   # auto-creates "myworld"
+mcagit init MyWorld.mcagit --worktree path/to/world
+mcagit -C MyWorld.mcagit commit -m "first backup"
+mcagit -C MyWorld.mcagit push http://localhost:5080/r/myworld main   # auto-creates "myworld"
 ```
 
 Open <http://localhost:5080> to browse it.
@@ -72,20 +74,23 @@ directory and auto-pushes a backup on a schedule and whenever the world changes 
 only when something actually changed, plus one final backup on shutdown:
 
 ```sh
+MCAGIT_BIN=/path/to/mcagit \
 MCASIDE_WORLD=/srv/minecraft/world \
 MCASIDE_REMOTE=http://localhost:5080/r/myworld \
 MCASIDE_TOKEN=mcahub_… \
 dotnet run --project src/Sidecar          # or the published `mcahub-sidecar` binary
 ```
 
-This is the no-Java, any-server path; a drop-in **Paper/Spigot/Fabric** plugin (which can also
-`save-off`/`save-all` around the snapshot) is tracked as a separate Java deliverable.
+The sidecar also drives the Rust `mcagit` binary (`init`/`commit`/`push`), so it needs `mcagit` on
+`PATH` or `MCAGIT_BIN`. This is the no-Java, any-server path; a drop-in **Paper/Spigot/Fabric** plugin
+(which can also `save-off`/`save-all` around the snapshot) is tracked as a separate Java deliverable.
 
 ### Configuration
 
 | Setting | Env var | Default | Purpose |
 |---|---|---|---|
-| Data dir | `MCAHUB_DATA` | `data/repos` | Where hosted `<name>.mcagit` repos live. |
+| mcagit binary | `MCAGIT_BIN` | `mcagit` (on `PATH`) | The Rust `mcagit` binary the hub spawns for transport (`serve`) + rendering/diff/query. |
+| Data dir | `MCAHUB_DATA` | `data/repos` | Where hosted `<name>` repos live (mcagit blake3/zstd format). |
 | World cache | `MCAHUB_CACHE` | `data/cache` | Materialized worlds for the explorer (one checkout per immutable backup). |
 | Map cache | `MCAHUB_MAPS` | `data/maps` | Rendered map PNGs (one per immutable commit). |
 | Account DB | `MCAHUB_DB` | `data/hub.json` | Users, hashed tokens, repo ownership/visibility. |
@@ -154,7 +159,7 @@ The hub runs in one of three modes, chosen by what you configure:
   (`MCAHUB_DEV_LOGIN` is refused off-loopback with no override at all.)
 - **Token** *(`MCAHUB_TOKEN` set)*: reads anonymous, writes need `--token <that token>`.
 - **Accounts** *(OAuth configured)*: real users sign in via OAuth; each gets personal access tokens for the
-  CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcadiff push/clone` against a
+  CLI; worlds can be **private**. The CLI can't run a browser redirect, so `mcagit push/clone` against a
   private world uses a personal access token (mint one at `/account`) — exactly how GitHub handles `git push`.
   Tokens carry a **scope** (`read` = clone/fetch, `write` = + push), an optional **expiry**, and can be
   **regenerated** (rotated) or wiped with **"sign out everywhere"** (revokes all tokens and invalidates
@@ -185,7 +190,7 @@ sign-in page shows a button per enabled provider. Identities are namespaced (`gi
 | `MCAHUB_REPORT_EMAIL` | — | Abuse-report address. When set, non-owners see a **"Report this world"** link on each world's page. The operator can take a world down with the master token: `curl -X POST -H "Authorization: Bearer <MCAHUB_TOKEN>" https://<host>/admin/repos/<name>/remove`. (A user can also be suspended — a non-destructive lockout from read/write.) |
 | `MCAHUB_MIN_AGE_GATE` | (off) | Require a **13+/parental-consent** confirmation on first sign-in before any page works (logged). Off by default for school/LAN self-hosts; **turn it on for a public launch** (Minecraft skews young). |
 | `MCAHUB_MAX_WORLDS_PER_USER` | `0` (∞) | Fair-use cap on how many worlds one account may own (a new push past it gets 403). `0` = unlimited. Distinct from the per-IP/size DoS limits above — this is governance, to stop one user flooding the home page. |
-| `MCAHUB_DISCORD_WEBHOOK` | — | A `discord.com` webhook URL that gets a grief-summary embed (with the map link) on every push. Validated to a real Discord webhook so a typo can't make the push path an SSRF gadget. |
+| `MCAHUB_DISCORD_WEBHOOK` | — | *(Deferred during the Rust-engine port — the on-push grief-alert embed is being reimplemented over mcagit's grief output; the var is currently inert.)* |
 
 A public world's pages carry **OpenGraph/Twitter** meta so a pasted link unfurls into its map, and **`/r/<name>/embed`** is a chrome-less, iframe-embeddable map for forums/wikis.
 
@@ -217,7 +222,7 @@ regular user — an admin must adopt it, or you can open a supervised migration 
    `.env` is gitignored and auto-loaded at startup (your shell environment still wins over it).
 4. **Run** from the hub root: `dotnet run --project src/McaHub`. The log should read
    `auth: accounts (github OAuth)`. Visit <http://localhost:5080>, click **Sign in**, then mint a token at
-   `/account` for `mcadiff push`.
+   `/account` for `mcagit push`.
 
 Behind a TLS-terminating reverse proxy, register the `https://…/auth/callback` URL and set
 `MCAHUB_BEHIND_PROXY=1` so the hub honors `X-Forwarded-Proto/Host/For` and builds an `https` redirect URI.
@@ -252,18 +257,19 @@ caches refill on first view. **Migrate to a new machine:** copy `data/repos`, `d
 
 ### Upgrading
 
-The build tracks the pinned core submodule, so an upgrade is two pulls:
+The hub and the engine version independently now — the engine is the `mcagit` **binary**, not a submodule:
 
 ```sh
 # 1. stop the hub   2. back up hub.json
-git pull && git submodule update --init --recursive   # hub + core
-dotnet build src/McaHub -c Release                 # rollback: `git checkout <old> && git submodule update`
+git pull && dotnet build src/McaHub -c Release    # the hub (C#)
+# update the mcagit binary too (cargo build --release in the mcagit repo); keep MCAGIT_BIN on the new one
 # 3. start the hub
 ```
 
-If a core change ever breaks the build, roll back by checking out the previous hub commit (which pins the
-previous working `mca-git` commit) and rebuilding. An incompatible `hub.json` from a *newer* build refuses
-to start with an actionable message (see the schema-version guard) rather than corrupting your data.
+Keep the `mcagit` binary roughly in step with the hub: the hub parses mcagit's `--json` output, so a
+breaking CLI/JSON change on the mcagit side needs a matching hub update — pin a known-good pair. An
+incompatible `hub.json` from a *newer* build refuses to start with an actionable message (see the
+schema-version guard) rather than corrupting your data.
 
 ### Logging
 
@@ -274,27 +280,27 @@ rate-limit-exempt for liveness probes — don't block it at the proxy.
 
 ## How it works
 
-- `RepoStore` — hosts bare mcadiff repos under the data dir; repo names are validated so they can't
-  escape it.
-- `Transport` — maps the mcadiff HTTP protocol (`/r/{repo}/info/refs`, `/objects`, `/pack`,
-  `/refs/heads/{branch}`, `/have`) onto a per-request `RemoteService` — the same handler `mcadiff serve`
-  uses. Writes are token-gated; the fast-forward check and pack hash-verification happen server-side in
-  the mcadiff core.
-- `Pages` — server-rendered HTML (no SPA): the repo list, a repo's timeline, a backup's
-  `RepoDiffer`-computed diff + `GriefReport` summary, a compare-any-two-backups view, a world
-  explorer (players + `WorldQuery` find), and the time-machine scrubber (`/r/{repo}/timeline`) — a little
-  inline JS that swaps the cached map `<img>` across the backup history; backup data is embedded as
-  `System.Text.Json` output and captions are set via `textContent`, so commit messages can't inject script.
-- `WorldCache` — materializes a backup to `cache/<repo>/<commit>` once (commits are immutable) so the
-  dir-based `WorldQuery` reads a real world without re-checking-out on every page view.
-- `MapRenderer` + `MapCache` — render a top-down surface map of a materialized world to a PNG: per block
-  column, scan the modern (1.18+) `sections`/`block_states` top-down for the first non-air block (decoded
-  via the core's `BlockStateDecoder`), map it to a color, then apply north-facing height shading. Hand-rolled
-  PNG writer (zlib via `ZLibStream` + a CRC32), no image dependency. Cached per immutable commit like the
-  world cache. A cold render takes a few seconds, so the pages show a "Generating map…" spinner and reveal
-  the image once it loads (the scrubber re-shows it on each step). `dotnet run --project src/McaHub --
-  render <worldDir> <out.png>` renders one offline.
-- `Auth` + `HubDb` — identity and the tiny JSON account store. `Auth` wires the framework's cookie + OAuth
+The C# layer is the web/auth/accounts shell; all world logic is the Rust **`mcagit`** engine, driven
+out-of-process via `RustEngine` (`src/McaHub/RustEngine.cs` — shells the binary + parses `--json`/PNG):
+
+- `RepoStore` — hosts bare mcagit repos at `<data>/<name>` (blake3/zstd format); repo names are validated
+  so they can't escape the data dir. Listing/branches/commit-times come from `mcagit log` + `cat-file`.
+- `Transport` — keeps mcahub's auth/accounts/throttle/audit gate, then **reverse-proxies** the transport
+  protocol (`/r/{repo}/{info-refs,have,objects,refs/heads}`) to a co-located **`mcagit serve`** sidecar
+  (started by `Program` on a loopback port). The sidecar speaks mcagit's object/ref protocol (fast-forward
+  guard + blake3 hash-verify on store); a first push auto-creates + claims the world.
+- `Pages` — server-rendered HTML (no SPA): the repo list, a repo's timeline, a backup view, a
+  compare-any-two-backups view, a world explorer, and the time-machine scrubber (`/r/{repo}/timeline`).
+  The diff + grief summary come from `mcagit diff --json` + `mcagit where-changed --json` (a backup's
+  materialized world vs its parent's); the explorer from `mcagit players/find --json`. Backup data is
+  embedded as `System.Text.Json` and captions set via `textContent`, so commit messages can't inject script.
+- `WorldCache` — materializes a backup to `cache/<repo>/<commit>` once via `mcagit checkout` (commits are
+  immutable) so the dir-based queries/renders read a real world without re-checking-out per page view.
+- `MapRenderer` ⇒ **`mcagit render`** + `MapCache` — the top-down surface map per backup is produced by the
+  Rust renderer and cached per immutable commit; a cold render shows a "Generating map…" spinner and reveals
+  the image once it loads (the scrubber re-shows it each step). Renders run as background jobs off the
+  request thread.
+- `Auth` + `HubDb` — identity and the tiny JSON account store (unchanged by the engine swap). `Auth` wires the framework's cookie + OAuth
   handlers (no third-party package), splits web identity (cookie) from CLI identity (Bearer PAT), and holds
   the shared `CanRead`/`CanWrite` rules used by both the web pages and the transport. `HubDb` keeps users,
   **hashed** tokens (the plaintext is shown once and never stored), per-repo owner/visibility, collaborator
@@ -309,17 +315,18 @@ rate-limit-exempt for liveness probes — don't block it at the proxy.
 
 Shipped: hosting + browse + per-backup diff + grief forensics, **compare any two backups**, a
 **world explorer** (players + find an entity / block entity / sign, backed by a materialize-once world
-cache), **rendered maps** + a **time-machine scrubber**, **accounts** (OAuth sign-in, per-user tokens,
-public/private worlds, collaborators, teams), multi-provider sign-in (Microsoft, Minecraft, Discord),
-COPPA age gate, AUP page, abuse-report link + operator takedown, user suspension, account/world deletion
-(GDPR/CCPA erasure), per-user world quota, and an **audit log** (`/r/<name>/audit` — role/visibility/
-ownership/ref/token changes). Natural next steps (some shared with the mcadiff GUI RFC):
+cache), **rendered maps** + a **time-machine scrubber**, **one-click restore**, **accounts** (OAuth
+sign-in, per-user tokens, public/private worlds, collaborators, teams), multi-provider sign-in (Microsoft,
+Minecraft, Discord), COPPA age gate, AUP page, abuse-report link + operator takedown, user suspension,
+account/world deletion (GDPR/CCPA erasure), per-user world quota, and an **audit log** (`/r/<name>/audit`).
+The hub is now **fully ported to the Rust `mcagit` engine** — no in-process .NET core, no submodule.
+Natural next steps:
 
+- Re-add the on-push **Discord grief alert** over mcagit's grief output (deferred during the engine port).
+- Surface more of mcagit's world tooling in the UI — a coordinate `inspect` page (block + properties +
+  biome + block-entity), region heatmaps, per-player inventory views.
 - Map thumbnails on the backup timeline, and a focusable region/coordinate jump in the map.
-- Deeper world-state pages — `inspect` a chunk's full NBT, region heatmaps, per-player inventory views.
-- One-click **restore** (waits on mcadiff's atomic-swap checkout) and a "preview into a temp folder" view.
-- Package the mcadiff core as a proper NuGet library so the reference isn't a submodule coupling.
 
 ## License
 
-GPL-3.0 (matching mcadiff). See [LICENSE](LICENSE).
+GPL-3.0 (matching mcagit). See [LICENSE](LICENSE).
