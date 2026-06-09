@@ -19,19 +19,19 @@ public static class Pages
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
         app.MapGet("/aup", (HttpContext ctx) => Aup(ctx, cfg, reportEmail));
-        app.MapGet("/r/{repo}/embed", (string repo, HttpContext ctx) => Embed(ctx, store, db, cfg, repo)); // iframe-able map (#25)
+        app.MapGet("/r/{repo}/embed", (string repo, HttpContext ctx) => Embed(ctx, store, db, cfg, rust, repo)); // iframe-able map (#25)
         app.MapGet("/upload", (HttpContext ctx) => UploadPage(ctx, cfg));     // drag-drop a world, no CLI (#26)
         // Block body (not `=> await …`): an expression-bodied async lambda binds as a raw RequestDelegate
         // and its IResult is discarded. A block body binds as the rich handler that executes the result.
-        app.MapPost("/upload", async (HttpContext ctx) => { return await UploadInspect(ctx, cfg); }); // stateless: extract → render → discard
-        app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, repo, reportEmail));
+        app.MapPost("/upload", async (HttpContext ctx) => { return await UploadInspect(ctx, cfg, rust); }); // stateless: extract → render → discard
+        app.MapGet("/r/{repo}", (string repo, HttpContext ctx) => Repo(ctx, store, db, cfg, rust, repo, reportEmail));
         app.MapGet("/r/{repo}/commit/{hash}", (string repo, string hash, HttpContext ctx) => Commit(ctx, store, db, cfg, rust, cache, repo, hash));
         app.MapGet("/r/{repo}/compare/{a}/{b}", (string repo, string a, string b, HttpContext ctx) => Compare(ctx, store, db, cfg, rust, cache, repo, a, b));
         app.MapGet("/r/{repo}/world/{reff}", (string repo, string reff, HttpContext ctx) =>
             World(ctx, store, db, cfg, cache, rust, repo, reff, ctx.Request.Query["find"], ctx.Request.Query["q"]));
-        app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, renderQueue, db, cfg, repo, reff))
+        app.MapGet("/r/{repo}/map/{reff}.png", (string repo, string reff, HttpContext ctx) => Map(ctx, store, renderQueue, db, cfg, rust, repo, reff))
             .WithRequestTimeout(RenderTimeoutPolicy); // hard server-side deadline on cold renders
-        app.MapGet("/r/{repo}/timeline", (string repo, HttpContext ctx) => Scrub(ctx, store, db, cfg, repo));
+        app.MapGet("/r/{repo}/timeline", (string repo, HttpContext ctx) => Scrub(ctx, store, db, cfg, rust, repo));
 
         if (!cfg.Accounts) return; // account + visibility surfaces only exist when accounts are enabled
 
@@ -139,7 +139,7 @@ public static class Pages
                 return Results.Redirect($"/r/{repo}");
             try
             {
-                if (RestoreCommit(store.Open(repo), hash, me.Login) is { } restored)
+                if (RestoreCommit(rust, cache, repo, store.PathOf(repo), hash) is { } restored)
                     Log(ctx, audit, "world.restore", repo, $"→ {hash[..Math.Min(10, hash.Length)]} as {restored[..10]}");
             }
             catch { return NotFound("backup", Auth.HeaderRight(ctx, cfg)); }
@@ -255,16 +255,17 @@ public static class Pages
     /// <summary>Roll a world back to <paramref name="targetRef"/> by committing that backup's tree as a
     /// NEW backup on the current branch — reversible (the pre-restore state stays in history), never an
     /// in-place overwrite (#24). Returns the new commit, or null if the world is already at that state.</summary>
-    internal static string? RestoreCommit(Repository repo, string targetRef, string actor)
+    internal static string? RestoreCommit(McaHub.Rust.RustEngine rust, WorldCache cache, string name, string repoDir, string targetRef)
     {
-        string target = repo.ResolveRef(targetRef);
-        string tree = repo.ReadCommit(target).Tree;
-        string branch = repo.CurrentBranch() ?? "main";
-        string? head = repo.ReadBranch(branch);
-        if (head is not null && repo.ReadCommit(head).Tree == tree) return null; // already there
-        string restored = repo.CreateCommit(tree, head is null ? [] : [head], $"restore to {target[..10]}", actor);
-        repo.WriteBranch(branch, restored);
-        return restored;
+        if (rust.RevParse(repoDir, targetRef) is not { } target) return null;
+        string tree = rust.ReadCommit(repoDir, target).Tree;
+        string? head = rust.RevParse(repoDir, "HEAD");
+        if (head is not null && rust.ReadCommit(repoDir, head).Tree == tree) return null; // already at that state
+        // Re-commit the target backup's materialized world as a NEW backup on the current branch
+        // (reversible — the pre-restore state stays in history), never an in-place overwrite (#24).
+        string worldDir = cache.Materialize(name, repoDir, target);
+        string restored = rust.Commit(repoDir, worldDir, $"restore to {target[..10]}");
+        return restored.Length > 0 ? restored : null;
     }
 
     /// <summary>Remove a repo's on-disk bytes: the bare repo + its materialized-world and map caches.</summary>
@@ -390,10 +391,10 @@ public static class Pages
     /// <summary>A chrome-less, iframe-embeddable map of a world's latest backup (#25). Read-only (no
     /// controls/forms), so relaxing the frame headers for cross-site embedding is clickjacking-safe; a
     /// private world still 404s to a non-viewer.</summary>
-    private static IResult Embed(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
+    private static IResult Embed(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, string name)
     {
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return Results.NotFound();
-        if (store.Open(name).HeadCommit() is not { } head) return Results.NotFound();
+        if (rust.RevParse(store.PathOf(name), "HEAD") is not { } head) return Results.NotFound();
         ctx.Response.Headers.Remove("X-Frame-Options"); // allow framing (set globally by the security-headers middleware)
         ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https:; style-src 'self'; frame-ancestors *";
         string url = $"{ctx.Request.Scheme}://{ctx.Request.Host}/r/{E(name)}";
@@ -423,7 +424,7 @@ public static class Pages
         </form>
         """, Auth.HeaderRight(ctx, cfg));
 
-    private static async Task<IResult> UploadInspect(HttpContext ctx, Auth.Config cfg)
+    private static async Task<IResult> UploadInspect(HttpContext ctx, Auth.Config cfg, McaHub.Rust.RustEngine rust)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!ctx.Request.HasFormContentType) return NotFound("upload", chip);
@@ -438,9 +439,9 @@ public static class Pages
             using (Stream s = file.OpenReadStream()) SafeUnzip.Extract(s, tmp, UploadMaxUncompressed, UploadMaxEntries);
             if (FindWorldDir(tmp) is not { } worldDir)
                 return Page("Upload", UploadError("Couldn't find a <code>region/</code> folder in that .zip — is it a Minecraft world?"), chip);
-            byte[] png = MapRenderer.Render(worldDir, out MapInfo info, UploadRenderChunks, ctx.RequestAborted);
-            var players = new WorldQuery(worldDir).Players().Take(50).ToList();
-            return Page("Uploaded world", UploadResult(png, info, players), chip);
+            byte[] png = rust.Render(worldDir, null, UploadRenderChunks);
+            var players = rust.Players(worldDir).Take(50).ToList();
+            return Page("Uploaded world", UploadResult(png, players), chip);
         }
         catch (UnsafeUploadException e) { return Page("Upload", UploadError(E(e.Message)), chip); }
         catch (OperationCanceledException) { return Page("Upload", UploadError("Upload cancelled."), chip); }
@@ -461,11 +462,11 @@ public static class Pages
         return null;
     }
 
-    private static string UploadResult(byte[] png, MapInfo info, List<PlayerHit> players)
+    private static string UploadResult(byte[] png, List<McaHub.Rust.PlayerHit> players)
     {
         var sb = new StringBuilder();
         sb.Append("""<p class="back"><a href="/upload">← inspect another</a></p><h1>Uploaded world</h1>""");
-        sb.Append($"""<p class="meta">{info.Chunks} chunks rendered{(info.Truncated ? " · truncated" : "")} · not stored</p>""");
+        sb.Append("""<p class="meta">rendered · not stored</p>""");
         // Inline as a data: URI (CSP allows img-src data:) so the page is self-contained — the temp world is
         // already deleted, so there's nothing to serve a second request from.
         sb.Append($"""<div class="map"><img src="data:image/png;base64,{Convert.ToBase64String(png)}" alt="top-down map of the uploaded world"></div>""");
@@ -474,8 +475,11 @@ public static class Pages
         else
         {
             sb.Append("<ul class=\"branches\">");
-            foreach (PlayerHit p in players)
-                sb.Append($"""<li>{E(p.Source)} <span class="meta">({p.X:0.#},{p.Y:0.#},{p.Z:0.#}) [{E(p.Dimension)}]</span></li>""");
+            foreach (var p in players)
+            {
+                string loc = p.Pos is { Length: >= 3 } ? $"({p.Pos[0]:0.#},{p.Pos[1]:0.#},{p.Pos[2]:0.#})" : "(?)";
+                sb.Append($"""<li>{E(p.Source)} <span class="meta">{loc} [{E(p.Dimension ?? "?")}]</span></li>""");
+            }
             sb.Append("</ul>");
         }
         return sb.ToString();
@@ -506,11 +510,11 @@ public static class Pages
         return Page("Worlds", b.ToString(), chip);
     }
 
-    private static IResult Repo(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name, string? reportEmail)
+    private static IResult Repo(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, string name, string? reportEmail)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
-        Repository repo = store.Open(name);
+        string repoDir = store.PathOf(name);
         HubUser? me = Auth.Current(ctx);
         HubRepoMeta? m = db.GetRepo(name);
 
@@ -531,7 +535,7 @@ public static class Pages
         }
         RenderCollaborators(b, ctx, db, name, m, me);
         string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
-        b.Append($"""<p class="clone">Clone: <code>mcadiff clone {E(baseUrl)}/r/{E(name)} {E(name)}.mcagit</code></p>""");
+        b.Append($"""<p class="clone">Clone: <code>mcagit clone {E(baseUrl)}/r/{E(name)} {E(name)}</code></p>""");
         if (me is not null && Auth.CanManagePeople(db, name, me.Id))
         {
             b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
@@ -545,32 +549,31 @@ public static class Pages
             b.Append($"""<p class="actions meta"><a href="mailto:{E(reportEmail)}?subject={E($"Report: {name}")}">⚑ Report this world</a></p>""");
 
         // A single branch is just noise to a non-dev — only show the section when there's a real choice (#31).
-        var branches = repo.Branches().ToList();
+        var branches = rust.Branches(repoDir);
         if (branches.Count > 1)
         {
             b.Append("<h2>Branches</h2><ul class=\"branches\">");
-            foreach (string br in branches)
-                if (repo.ReadBranch(br) is { } tip)
-                    b.Append($"""<li><a href="/r/{E(name)}/commit/{tip}">{E(br)}</a> <span class="hash">{tip[..10]}</span></li>""");
+            foreach (var (br, tip) in branches)
+                b.Append($"""<li><a href="/r/{E(name)}/commit/{tip}">{E(br)}</a> <span class="hash">{tip[..10]}</span></li>""");
             b.Append("</ul>");
         }
 
-        if (repo.HeadCommit() is { } head)
+        if (rust.RevParse(repoDir, "HEAD") is { } head)
         {
             b.Append($"""<h2>Backups</h2><p class="actions"><a href="/r/{E(name)}/timeline">🕑 time machine — scrub the map across backups</a></p><ol class="timeline">""");
             string? cur = head;
             int i = 0;
             for (; cur is not null && i < 50; i++)
             {
-                CommitObject c = repo.ReadCommit(cur);
-                string? par = repo.ParentsOf(cur) is [string pp, ..] ? pp : null;
+                McaHub.Rust.CommitMeta c = rust.ReadCommit(repoDir, cur);
+                string? par = c.Parents is [string pp, ..] ? pp : null;
                 // The oldest backup has nothing to compare against — say so instead of dropping the link silently (#31).
                 string actions = par is null
                     ? $"""<a href="/r/{E(name)}/world/{cur}">explore</a> · <span class="meta">first backup — nothing to compare</span>"""
                     : $"""<a href="/r/{E(name)}/world/{cur}">explore</a> · <a href="/r/{E(name)}/compare/{par}/{cur}">what changed</a>""";
                 // A lazy-loaded map thumbnail makes history skimmable visually (#27); loading="lazy" + the
                 // render gate + the render rate-limit keep a long timeline from triggering a render storm.
-                b.Append($"""<li><a class="thumb" href="/r/{E(name)}/commit/{cur}"><img src="/r/{E(name)}/map/{cur}.png" alt="" loading="lazy"></a><a href="/r/{E(name)}/commit/{cur}">{cur[..10]}</a> <span class="cmsg">{E(Oneline(c.Message))}</span><span class="meta">{E(c.Author)} · {When(c.CommitTime ?? c.Time)}{(c.Parents.Count > 1 ? " · merge" : "")}{(c.Signature is not null ? " · signed" : "")}</span><span class="actions">{actions}</span></li>""");
+                b.Append($"""<li><a class="thumb" href="/r/{E(name)}/commit/{cur}"><img src="/r/{E(name)}/map/{cur}.png" alt="" loading="lazy"></a><a href="/r/{E(name)}/commit/{cur}">{cur[..10]}</a> <span class="cmsg">{E(Oneline(c.Message))}</span><span class="meta">{E(c.Author)} · {When(c.Time)}{(c.Parents.Count > 1 ? " · merge" : "")}</span><span class="actions">{actions}</span></li>""");
                 cur = par;
             }
             // The list caps at 50 — tell a grief-hunter the older event is still reachable via the time machine (#31).
@@ -734,12 +737,10 @@ public static class Pages
         </div>
         """;
 
-    private static async Task<IResult> Map(HttpContext ctx, RepoStore store, RenderQueue renderQueue, HubDb db, Auth.Config cfg, string name, string refName)
+    private static async Task<IResult> Map(HttpContext ctx, RepoStore store, RenderQueue renderQueue, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, string name, string refName)
     {
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return Results.NotFound();
-        Repository repo = store.Open(name);
-        string commit;
-        try { commit = repo.ResolveRef(refName); } catch { return Results.NotFound(); }
+        if (rust.RevParse(store.PathOf(name), refName) is not { } commit) return Results.NotFound();
         MapDimension dim = ctx.Request.Query["dim"].ToString() switch { "nether" => MapDimension.Nether, "end" => MapDimension.End, _ => MapDimension.Overworld };
         // A cold render runs as a background job; a client disconnect won't abort it (it finishes + caches).
         byte[] png = await renderQueue.RequestAsync(name, commit, dim, ctx.RequestAborted);
@@ -751,19 +752,19 @@ public static class Pages
 
     private sealed record ScrubPoint(string Hash, string Short, string Msg, string Author, string When);
 
-    private static IResult Scrub(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
+    private static IResult Scrub(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, string name)
     {
         string chip = Auth.HeaderRight(ctx, cfg);
         if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
-        Repository repo = store.Open(name);
+        string repoDir = store.PathOf(name);
 
         var pts = new List<ScrubPoint>();
-        string? cur = repo.HeadCommit();
+        string? cur = rust.RevParse(repoDir, "HEAD");
         for (int i = 0; cur is not null && i < 200; i++)
         {
-            CommitObject c = repo.ReadCommit(cur);
-            pts.Add(new ScrubPoint(cur, cur[..10], Oneline(c.Message), c.Author, When(c.CommitTime ?? c.Time)));
-            cur = repo.ParentsOf(cur) is [string p, ..] ? p : null;
+            McaHub.Rust.CommitMeta c = rust.ReadCommit(repoDir, cur);
+            pts.Add(new ScrubPoint(cur, cur[..10], Oneline(c.Message), c.Author, When(c.Time)));
+            cur = c.Parents is [string p, ..] ? p : null;
         }
         pts.Reverse(); // oldest → newest, so the slider runs left(past) → right(present)
 

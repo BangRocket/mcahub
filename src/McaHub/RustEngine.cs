@@ -63,6 +63,30 @@ public sealed class RustEngine(string binary)
         return list;
     }
 
+    /// <summary>Branch name → tip hash, read from <c>refs/heads</c>.</summary>
+    public IReadOnlyList<(string Name, string Hash)> Branches(string repoDir)
+    {
+        string heads = Path.Combine(repoDir, "refs", "heads");
+        var list = new List<(string, string)>();
+        if (Directory.Exists(heads))
+            foreach (string f in Directory.EnumerateFiles(heads, "*", SearchOption.AllDirectories)
+                         .OrderBy(x => x, StringComparer.Ordinal))
+            {
+                string name = Path.GetRelativePath(heads, f).Replace('\\', '/');
+                string hash = File.ReadAllText(f).Trim();
+                if (hash.Length > 0) list.Add((name, hash));
+            }
+        return list;
+    }
+
+    /// <summary>Snapshot a materialized world dir as a new commit on the repo's current branch; returns
+    /// the new commit hash (empty if nothing changed).</summary>
+    public string Commit(string repoDir, string worldDir, string message)
+    {
+        var (_, outp, _) = Run(["-C", repoDir, "commit", "-m", message, worldDir], allow: [0]);
+        return outp.Trim(); // `commit` prints the new hash to stdout
+    }
+
     /// <summary>Commit metadata (tree/parents/message/author/time) via <c>cat-file</c>.</summary>
     public CommitMeta ReadCommit(string repoDir, string commit)
     {
