@@ -27,6 +27,15 @@ public sealed partial class RepoStore(string dataDir, RustEngine rust)
     public bool Exists(string name) =>
         IsValidName(name) && Directory.Exists(Path.Combine(PathOf(name), "objects"));
 
+    /// <summary>Ensure a bare repo exists for <paramref name="name"/> (`mcagit init`); no-op if present.
+    /// Lets a first push auto-create + claim the world even before any object lands.</summary>
+    public void EnsureCreated(string name)
+    {
+        if (Exists(name)) return;
+        Directory.CreateDirectory(_root);
+        _rust.Init(PathOf(name));
+    }
+
     /// <summary>Delete a hosted repo from disk. Returns false if it didn't exist.</summary>
     public bool Delete(string name)
     {

@@ -76,7 +76,7 @@ public static class Transport
         bool created = !store.Exists(repo);
         if (created && cfg.Accounts && !admin && uid is not null && maxWorldsPerUser > 0 && db.OwnedRepoCount(uid) >= maxWorldsPerUser)
             return Results.Text($"you've reached the limit of {maxWorldsPerUser} worlds — delete one before creating another", statusCode: 403);
-        // The sidecar auto-creates the repo on first push; mcahub only records ownership.
+        if (created) store.EnsureCreated(repo); // first push auto-creates the world (the sidecar serves it)
         if (cfg.Accounts && uid is not null) db.EnsureRepo(repo, uid, isPrivate: defaultPrivate);
         else if (cfg.Accounts && admin) db.EnsureRepo(repo, SystemOwner, isPrivate: false);
         if (created && cfg.Accounts) audit.Append(actor, "ownership.claim", repo, "first push", "cli", Ip(ctx));

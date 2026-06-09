@@ -52,8 +52,8 @@ public class DeletionTests
     public void RepoStore_delete_removes_the_repo_from_disk()
     {
         using var tmp = new TempDir();
-        var store = new RepoStore(Path.Combine(tmp.Path, "repos"));
-        store.Create("w");
+        var store = new RepoStore(Path.Combine(tmp.Path, "repos"), McaHub.Rust.RustEngine.FromEnv());
+        Directory.CreateDirectory(Path.Combine(store.PathOf("w"), "objects")); // a bare mcagit repo on disk
         Assert.True(store.Exists("w"));
         Assert.True(store.Delete("w"));
         Assert.False(store.Exists("w"));

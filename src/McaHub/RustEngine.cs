@@ -63,6 +63,9 @@ public sealed class RustEngine(string binary)
         return list;
     }
 
+    /// <summary>Create a fresh bare repo at <paramref name="repoDir"/> (`mcagit init`).</summary>
+    public void Init(string repoDir) => Run(["init", repoDir], allow: [0]);
+
     /// <summary>Branch name → tip hash, read from <c>refs/heads</c>.</summary>
     public IReadOnlyList<(string Name, string Hash)> Branches(string repoDir)
     {

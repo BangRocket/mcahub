@@ -1,25 +1,12 @@
-using System.Collections.Generic;
-using McaDiff.Repo;
-
 namespace McaHub.Tests;
 
 /// <summary>
-/// The non-quota guards from #5: the manifest entry-count (inode-exhaustion guard) and HubDb.Save
-/// surfacing a write failure cleanly (full-disk resilience) instead of leaving a stray temp file.
+/// HubDb.Save surfaces a write failure cleanly (full-disk resilience) instead of leaving a stray temp
+/// file. (The old manifest entry-count guard moved into the Rust checkout path — WorldCache caps a
+/// materialized world's entry count after checkout.)
 /// </summary>
 public class CacheGuardTests
 {
-    [Fact]
-    public void Manifest_entry_count_sums_files_and_dirs()
-    {
-        var m = new Manifest();
-        m.Regions["r.0.0.mca"] = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["0.0"] = "h1", ["0.1"] = "h2" };
-        m.Nbt["level.dat"] = "h3";
-        m.Blobs["icon.png"] = "h4";
-        m.EmptyDirs.Add("data");
-        // counts the filesystem entries created (region files, nbt, blobs, empty dirs) — not inner chunks
-        Assert.Equal(4, WorldCache.ManifestEntryCount(m));
-    }
 
     [Fact]
     public void HubDb_Save_failure_surfaces_a_clear_error_and_leaves_no_temp_file()

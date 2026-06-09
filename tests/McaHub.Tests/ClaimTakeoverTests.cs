@@ -13,7 +13,8 @@ public class ClaimTakeoverTests
     private static void SeedLegacyRepo(HubFactory f, string name)
     {
         _ = f.CreateClient();                     // make sure the host (and its temp config) is built
-        new RepoStore(f.DataDir).Create(name);    // an on-disk repo with no hub.json owner
+        var store = new RepoStore(f.DataDir, McaHub.Rust.RustEngine.FromEnv());
+        Directory.CreateDirectory(Path.Combine(store.PathOf(name), "objects")); // an on-disk repo with no hub.json owner
     }
 
     [Fact]
