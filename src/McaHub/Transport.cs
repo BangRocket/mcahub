@@ -15,7 +15,7 @@ public static class Transport
 
     public static void MapTransport(WebApplication app, RepoStore store, HubDb db, Auth.Config cfg, long maxBody,
         AuthThrottle throttle, bool adoptUnowned, AuditLog audit, bool defaultPrivate, int maxWorldsPerUser,
-        HttpClient sidecar, string sidecarBase, string? discordWebhook = null)
+        HttpClient sidecar, string sidecarBase)
     {
         // Reads (advertise refs, negotiate, download an object).
         app.MapGet("/r/{repo}/info/refs", (string repo, HttpContext ctx) =>

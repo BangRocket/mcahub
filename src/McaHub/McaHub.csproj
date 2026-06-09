@@ -5,15 +5,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>McaHub</RootNamespace>
-    <!-- McaDiff ships as a CLI Exe; we reference it as a library. Suppress the apphost-reference note. -->
-    <NoWarn>$(NoWarn);NETSDK1112</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- In-process reference to the mcadiff core (vendored as a git submodule at ./mca-git).
-         Gives the rich diff/query/repo types directly, instead of scraping CLI text. -->
-    <ProjectReference Include="..\..\mca-git\src\McaDiff\McaDiff.csproj" />
-  </ItemGroup>
+  <!-- The engine is now the Rust `mcagit` binary, driven out-of-process via RustEngine.cs
+       (serve for transport; checkout/diff/where-changed/players/find/render/cat-file for the UI).
+       No in-process .NET core reference. -->
 
   <ItemGroup>
     <InternalsVisibleTo Include="McaHub.Tests" />

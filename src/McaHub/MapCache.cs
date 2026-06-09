@@ -2,6 +2,9 @@ using McaHub.Rust;
 
 namespace McaHub;
 
+/// <summary>Which dimension's region tree to render (#27).</summary>
+public enum MapDimension { Overworld, Nether, End }
+
 /// <summary>
 /// Caches a rendered map PNG per backup. Like <see cref="WorldCache"/>, a commit is immutable, so a
 /// rendered <c>map/&lt;repo&gt;/&lt;commit&gt;.png</c> is a permanent valid cache — the expensive

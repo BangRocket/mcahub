@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using McaDiff.Repo;
 using McaHub.Rust;
 
 namespace McaHub;
@@ -27,16 +26,6 @@ public sealed partial class RepoStore(string dataDir, RustEngine rust)
     /// <summary>True if a mcagit repo (an <c>objects/</c> store) lives at this name.</summary>
     public bool Exists(string name) =>
         IsValidName(name) && Directory.Exists(Path.Combine(PathOf(name), "objects"));
-
-    // Retained for the not-yet-migrated web handlers (Repo/Embed/Map/Scrub/restore). The sidecar
-    // `mcagit serve` auto-creates a repo on first push, so the transport no longer calls Create.
-    public Repository Open(string name) => Repository.Open(PathOf(name));
-
-    public Repository Create(string name)
-    {
-        Directory.CreateDirectory(_root);
-        return Repository.Init(PathOf(name));
-    }
 
     /// <summary>Delete a hosted repo from disk. Returns false if it didn't exist.</summary>
     public bool Delete(string name)

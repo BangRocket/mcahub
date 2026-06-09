@@ -5,15 +5,6 @@ using Microsoft.AspNetCore.HttpOverrides;
 
 LoadDotEnv(Path.Combine(Directory.GetCurrentDirectory(), ".env")); // pull MCAHUB_* / OAuth creds out of a local .env
 
-// Standalone utility: render a world directory's top-down map to a PNG without running the server.
-if (args is ["render", var worldDir, var outPath])
-{
-    byte[] png = MapRenderer.Render(worldDir, out MapInfo mi);
-    File.WriteAllBytes(outPath, png);
-    Console.WriteLine($"rendered {mi.Width}x{mi.Height} from {mi.Chunks} chunks{(mi.Truncated ? " (truncated)" : "")} -> {outPath}");
-    return;
-}
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Default to a friendly local port unless the host overrides ASPNETCORE_URLS.
@@ -176,7 +167,6 @@ Auth.MapAuth(app, auth, db);                  // /auth/login · /auth/callback �
 bool adoptUnowned = (app.Configuration["AdoptUnowned"] ?? Environment.GetEnvironmentVariable("MCAHUB_ADOPT_UNOWNED")) is "1" or "true"; // claim-on-first-push of pre-existing unowned repos (#6); default off
 bool defaultPrivate = (app.Configuration["DefaultPrivate"] ?? Environment.GetEnvironmentVariable("MCAHUB_DEFAULT_PRIVATE")) is not ("0" or "false"); // new worlds private until published (#34); default on
 int maxWorldsPerUser = int.TryParse(app.Configuration["MaxWorldsPerUser"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_WORLDS_PER_USER"), out int mw) ? mw : 0; // per-user world cap (#35); 0 = unlimited
-string? discordWebhook = app.Configuration["DiscordWebhook"] ?? Environment.GetEnvironmentVariable("MCAHUB_DISCORD_WEBHOOK"); // grief alerts on push (#25)
 // Start the Rust transport engine (`mcagit serve`) as a sidecar on a free loopback port; the transport
 // reverse-proxies /r/{repo}/* to it (mcahub's auth gate stays in front). Killed on shutdown.
 int sidecarPort;
@@ -190,7 +180,7 @@ var sidecarHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(10) }; // a pu
 for (int i = 0; i < 50; i++) // wait for the sidecar to bind (it's fast; ~poll up to 5s)
 { try { if ((await sidecarHttp.GetAsync($"{sidecarBase}/health")).IsSuccessStatusCode) break; } catch { /* not up yet */ } await Task.Delay(100); }
 
-Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser, sidecarHttp, sidecarBase, discordWebhook); // clone/fetch/push under /r/{repo}/…
+Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser, sidecarHttp, sidecarBase); // clone/fetch/push under /r/{repo}/…
 string? reportEmail = app.Configuration["ReportEmail"] ?? Environment.GetEnvironmentVariable("MCAHUB_REPORT_EMAIL"); // abuse-report address (#35)
 Pages.MapPages(app, store, cache, maps, renderQueue, db, auth, audit, rust, reportEmail); // the web UI (browse + compare + world-state + map + account)
 
