@@ -25,6 +25,19 @@ public sealed class RustEngine(string binary)
 
     // ---- repo / transport plumbing ----
 
+    /// <summary>Start `mcagit serve` as a child process hosting the bare repos under
+    /// <paramref name="dataDir"/> at <c>/r/&lt;name&gt;/</c> on <paramref name="addr"/>. mcahub proxies
+    /// the transport endpoints to it (with auth in front).</summary>
+    public Process StartServe(string dataDir, string addr)
+    {
+        var psi = new ProcessStartInfo(binary) { UseShellExecute = false };
+        psi.ArgumentList.Add("serve");
+        psi.ArgumentList.Add(dataDir);
+        psi.ArgumentList.Add("--addr");
+        psi.ArgumentList.Add(addr);
+        return Process.Start(psi) ?? throw new InvalidOperationException($"failed to start {binary} serve");
+    }
+
     /// <summary>Materialize <paramref name="commit"/> of the bare repo at <paramref name="repoDir"/> into <paramref name="outDir"/>.</summary>
     public void Checkout(string repoDir, string commit, string outDir) =>
         Run(["-C", repoDir, "checkout", commit, outDir], allow: [0]);

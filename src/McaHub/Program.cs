@@ -83,7 +83,7 @@ var cacheLimits = new CacheLimits(
     ManifestEntries: CacheInt("MaxManifestEntries", "MCAHUB_MAX_MANIFEST_ENTRIES", 100_000));
 
 var rust = RustEngine.FromEnv();
-var store = new RepoStore(dataDir);
+var store = new RepoStore(dataDir, rust);
 var cache = new WorldCache(cacheDir, cacheLimits, rust);
 var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks, cacheLimits, rust);
 var db = new HubDb(dbPath);
@@ -177,7 +177,20 @@ bool adoptUnowned = (app.Configuration["AdoptUnowned"] ?? Environment.GetEnviron
 bool defaultPrivate = (app.Configuration["DefaultPrivate"] ?? Environment.GetEnvironmentVariable("MCAHUB_DEFAULT_PRIVATE")) is not ("0" or "false"); // new worlds private until published (#34); default on
 int maxWorldsPerUser = int.TryParse(app.Configuration["MaxWorldsPerUser"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_WORLDS_PER_USER"), out int mw) ? mw : 0; // per-user world cap (#35); 0 = unlimited
 string? discordWebhook = app.Configuration["DiscordWebhook"] ?? Environment.GetEnvironmentVariable("MCAHUB_DISCORD_WEBHOOK"); // grief alerts on push (#25)
-Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser, discordWebhook); // mcadiff clone/fetch/push under /r/{repo}/…
+// Start the Rust transport engine (`mcagit serve`) as a sidecar on a free loopback port; the transport
+// reverse-proxies /r/{repo}/* to it (mcahub's auth gate stays in front). Killed on shutdown.
+int sidecarPort;
+using (var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
+{ probe.Start(); sidecarPort = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port; probe.Stop(); }
+string sidecarBase = $"http://127.0.0.1:{sidecarPort}";
+var sidecarProc = rust.StartServe(Path.GetFullPath(dataDir), $"127.0.0.1:{sidecarPort}");
+app.Lifetime.ApplicationStopping.Register(() =>
+{ try { if (!sidecarProc.HasExited) sidecarProc.Kill(entireProcessTree: true); } catch { /* best effort */ } });
+var sidecarHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(10) }; // a push can be large
+for (int i = 0; i < 50; i++) // wait for the sidecar to bind (it's fast; ~poll up to 5s)
+{ try { if ((await sidecarHttp.GetAsync($"{sidecarBase}/health")).IsSuccessStatusCode) break; } catch { /* not up yet */ } await Task.Delay(100); }
+
+Transport.MapTransport(app, store, db, auth, maxPushBytes, authThrottle, adoptUnowned, audit, defaultPrivate, maxWorldsPerUser, sidecarHttp, sidecarBase, discordWebhook); // clone/fetch/push under /r/{repo}/…
 string? reportEmail = app.Configuration["ReportEmail"] ?? Environment.GetEnvironmentVariable("MCAHUB_REPORT_EMAIL"); // abuse-report address (#35)
 Pages.MapPages(app, store, cache, maps, renderQueue, db, auth, audit, rust, reportEmail); // the web UI (browse + compare + world-state + map + account)
 

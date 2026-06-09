@@ -1055,9 +1055,11 @@ public static class Pages
 
     private static string Oneline(string msg) { int nl = msg.IndexOf('\n'); return nl < 0 ? msg : msg[..nl]; }
     private static string Short(string id) => id.StartsWith("minecraft:") ? id["minecraft:".Length..] : id;
-    private static string When(string iso)
+    private static string When(string s)
     {
-        if (!DateTimeOffset.TryParse(iso, out var d)) return iso;
+        DateTimeOffset d;
+        if (long.TryParse(s, out long unix)) d = DateTimeOffset.FromUnixTimeSeconds(unix);
+        else if (!DateTimeOffset.TryParse(s, out d)) return s;
         string abs = d.ToString("yyyy-MM-dd HH:mm");
         TimeSpan ago = DateTimeOffset.UtcNow - d.ToUniversalTime();
         // A grief-hunter thinks in "last night", not dates — prefix a relative time for recent events (#31).
