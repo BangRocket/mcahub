@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using McaDiff.Repo;
+using McaHub.Rust;
 
 namespace McaHub;
 
@@ -17,21 +17,21 @@ public sealed class WorldCache
     private readonly int _manifestCap;
     private readonly ConcurrentDictionary<string, object> _locks = new(StringComparer.Ordinal);
     private readonly DiskCacheQuota _quota;
+    private readonly RustEngine _rust;
 
-    public WorldCache(string cacheDir, CacheLimits limits)
+    public WorldCache(string cacheDir, CacheLimits limits, RustEngine rust)
     {
         _root = Path.GetFullPath(cacheDir);
         _manifestCap = limits.ManifestEntries;
         _quota = new DiskCacheQuota(limits.WorldBytes, limits.WorldsPerRepo, DeleteDir);
+        _rust = rust;
         Seed();
         _quota.Enforce();
     }
 
-    /// <summary>Filesystem entries a manifest will create — the inode/dir-count exhaustion surface.</summary>
-    public static int ManifestEntryCount(Manifest m) =>
-        m.Regions.Count + m.Nbt.Count + m.Blobs.Count + m.EmptyDirs.Count;
-
-    public string Materialize(string repoName, Repository repo, string commit, CancellationToken ct = default)
+    /// <summary>Materialize <paramref name="commit"/> of the bare repo at <paramref name="repoDir"/> via the
+    /// Rust <c>mcagit checkout</c> (produces a real Minecraft world dir), cached per repo+commit.</summary>
+    public string Materialize(string repoName, string repoDir, string commit, CancellationToken ct = default)
     {
         string dir = Path.Combine(_root, repoName, commit);
         string key = repoName + "/" + commit;
@@ -42,17 +42,19 @@ public sealed class WorldCache
             if (Ready(dir)) { _quota.Touch(key); return dir; }
             ct.ThrowIfCancellationRequested();
 
-            Manifest manifest = repo.ReadManifest(repo.ReadCommit(commit).Tree);
-            int entries = ManifestEntryCount(manifest);
-            if (entries > _manifestCap)
-                throw new InvalidOperationException(
-                    $"world manifest has {entries} entries (cap {_manifestCap}) — refusing to materialize");
-
             string tmp = dir + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
             try
             {
-                Checkout.Materialize(repo, manifest, tmp, prune: false);
+                _rust.Checkout(repoDir, commit, tmp);
                 ct.ThrowIfCancellationRequested();
+                // Inode/dir-count guard: refuse an absurd entry count (bounded scan replaces the old
+                // pre-read manifest cap, since checkout is opaque to us).
+                int entries = Directory.Exists(tmp)
+                    ? Directory.EnumerateFileSystemEntries(tmp, "*", SearchOption.AllDirectories)
+                        .Take(_manifestCap + 1).Count()
+                    : 0;
+                if (entries > _manifestCap)
+                    throw new InvalidOperationException($"materialized world has >{_manifestCap} entries — refusing to cache");
                 Directory.Move(tmp, dir); // atomic-ish publish so a half-materialize is never seen as ready
             }
             catch

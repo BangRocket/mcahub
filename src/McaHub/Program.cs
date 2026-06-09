@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using McaHub;
+using McaHub.Rust;
 using Microsoft.AspNetCore.HttpOverrides;
 
 LoadDotEnv(Path.Combine(Directory.GetCurrentDirectory(), ".env")); // pull MCAHUB_* / OAuth creds out of a local .env
@@ -81,9 +82,10 @@ var cacheLimits = new CacheLimits(
     MapsPerRepo: CacheInt("MaxMapsPerRepo", "MCAHUB_MAX_MAPS_PER_REPO", 100),
     ManifestEntries: CacheInt("MaxManifestEntries", "MCAHUB_MAX_MANIFEST_ENTRIES", 100_000));
 
+var rust = RustEngine.FromEnv();
 var store = new RepoStore(dataDir);
-var cache = new WorldCache(cacheDir, cacheLimits);
-var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks, cacheLimits);
+var cache = new WorldCache(cacheDir, cacheLimits, rust);
+var maps = new MapCache(mapDir, cache, renderConcurrency, maxRenderChunks, cacheLimits, rust);
 var db = new HubDb(dbPath);
 var audit = new AuditLog(auditPath);
 Auth.Config auth = Auth.Read(builder.Configuration);
@@ -96,7 +98,7 @@ var renderQueue = new RenderQueue(
     // store.Exists re-validates the repo name (a resumed job's name comes from a marker file, not a
     // just-checked request) before any path is built; a deleted/bogus repo throws → the job drops its marker.
     render: (repo, commit, dim, ct) => store.Exists(repo)
-        ? maps.PngAsync(repo, store.Open(repo), commit, ct, dim)
+        ? maps.PngAsync(repo, store.PathOf(repo), commit, ct, dim)
         : throw new DirectoryNotFoundException($"repo '{repo}' no longer exists"),
     jobsDir: mapDir.TrimEnd('/', '\\') + ".jobs",
     workers: renderConcurrency);

@@ -1,4 +1,4 @@
-using McaDiff.Repo;
+using McaHub.Rust;
 
 namespace McaHub;
 
@@ -16,19 +16,25 @@ public sealed class MapCache
     private readonly RenderGate _gate;
     private readonly int _maxRenderChunks;
     private readonly DiskCacheQuota _quota;
+    private readonly RustEngine _rust;
 
-    public MapCache(string cacheDir, WorldCache worlds, int maxRenderConcurrency, int maxRenderChunks, CacheLimits limits)
+    public MapCache(string cacheDir, WorldCache worlds, int maxRenderConcurrency, int maxRenderChunks, CacheLimits limits, RustEngine rust)
     {
         _root = Path.GetFullPath(cacheDir);
         _worlds = worlds;
         _gate = new RenderGate(maxRenderConcurrency);
         _maxRenderChunks = maxRenderChunks;
         _quota = new DiskCacheQuota(limits.MapBytes, limits.MapsPerRepo, DeleteFile);
+        _rust = rust;
         Seed();
         _quota.Enforce();
     }
 
-    public async Task<byte[]> PngAsync(string repoName, Repository repo, string commit, CancellationToken ct, MapDimension dim = MapDimension.Overworld)
+    /// <summary>Map a hub dimension to the `mcagit --dim` token (overworld → none).</summary>
+    private static string? DimToken(MapDimension dim) =>
+        dim switch { MapDimension.Nether => "nether", MapDimension.End => "end", _ => null };
+
+    public async Task<byte[]> PngAsync(string repoName, string repoDir, string commit, CancellationToken ct, MapDimension dim = MapDimension.Overworld)
     {
         string path = PathFor(repoName, commit, dim);
         string key = RenderKey(repoName, commit, dim);
@@ -36,8 +42,8 @@ public sealed class MapCache
         return await _gate.RunAsync(key, async () =>
         {
             if (await TryReadAsync(path, key, ct) is { } hit) return hit; // double-check under the gate
-            string worldDir = _worlds.Materialize(repoName, repo, commit, ct);
-            byte[] png = MapRenderer.Render(worldDir, dim, out _, _maxRenderChunks, ct);
+            string worldDir = _worlds.Materialize(repoName, repoDir, commit, ct);
+            byte[] png = _rust.Render(worldDir, DimToken(dim), _maxRenderChunks);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
             await File.WriteAllBytesAsync(tmp, png, ct);

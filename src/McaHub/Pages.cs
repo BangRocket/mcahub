@@ -662,7 +662,7 @@ public static class Pages
         string commit;
         try { commit = repo.ResolveRef(refName); } catch { return NotFound("backup", chip); }
 
-        string worldDir = cache.Materialize(name, repo, commit, ctx.RequestAborted); // immutable cache; first view materializes
+        string worldDir = cache.Materialize(name, store.PathOf(name), commit, ctx.RequestAborted); // immutable cache; first view materializes
         var wq = new WorldQuery(worldDir);
 
         var sb = new StringBuilder();
