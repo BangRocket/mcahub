@@ -57,4 +57,12 @@ public class MarkdownRenderTests
         Assert.Equal("", Markdown.Render(null));
         Assert.Equal("", Markdown.Render("   "));
     }
+
+    [Fact]
+    public void Drops_javascript_autolink()
+    {
+        // CommonMark angle-bracket autolink <url> produces AutolinkInline, not LinkInline — must also be filtered.
+        string html = Markdown.Render("<javascript:alert(1)>");
+        Assert.DoesNotContain("javascript:", html);
+    }
 }

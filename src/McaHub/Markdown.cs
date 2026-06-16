@@ -35,6 +35,8 @@ public static class Markdown
             if (!IsSafeUrl(link.Url)) link.Url = "";                  // blank javascript:/data:/unknown schemes
             else if (!link.IsImage) link.GetAttributes().AddProperty("rel", "nofollow ugc noopener");
         }
+        foreach (AutolinkInline auto in doc.Descendants<AutolinkInline>())
+            if (!IsSafeUrl(auto.Url)) auto.Url = "";                  // <url> autolinks aren't LinkInline; filter them too. (No rel: autolinks don't render one.)
         return doc.ToHtml(Pipeline);
     }
 
@@ -44,7 +46,7 @@ public static class Markdown
         if (string.IsNullOrWhiteSpace(url)) return false;
         string u = url.TrimStart();
         int colon = u.IndexOf(':');
-        if (colon < 0) return true;                                   // no scheme ⇒ relative ⇒ safe
+        if (colon < 0) return true;                                   // no scheme: relative path, anchor, or scheme-relative (//host) — allowed; CSP bounds cross-origin loads
         int slash = u.IndexOf('/'), hash = u.IndexOf('#'), q = u.IndexOf('?');
         // A separator before the first colon means the colon is in a path segment, not a scheme.
         if ((slash >= 0 && slash < colon) || (hash >= 0 && hash < colon) || (q >= 0 && q < colon)) return true;
