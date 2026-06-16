@@ -116,4 +116,17 @@ public class RepoAboutTests
         Assert.Contains("A cosy hillside town", home);
         Assert.Contains("class=\"desc\"", home);
     }
+
+    [Fact]
+    public async Task Clone_line_has_a_copy_button()
+    {
+        using var f = new HubFactory(HubMode.Accounts);
+        HttpClient owner = await Accounts.SignInAsync(f, "alice");
+        string token = await Accounts.MintTokenAsync(owner);
+        await Accounts.CreateRepoAsync(f, token, "base");
+
+        string page = await (await owner.GetAsync("/r/base")).Content.ReadAsStringAsync();
+        Assert.Contains("id=\"clone-cmd\"", page);
+        Assert.Contains("data-copy-target=\"clone-cmd\"", page);
+    }
 }

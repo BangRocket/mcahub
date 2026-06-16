@@ -601,7 +601,7 @@ public static class Pages
         }
         RenderCollaborators(b, ctx, db, name, m, me);
         string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
-        b.Append($"""<p class="clone">Clone: <code>mcagit clone {E(baseUrl)}/r/{E(name)} {E(name)}</code></p>""");
+        b.Append($"""<p class="clone">Clone: <code id="clone-cmd">mcagit clone {E(baseUrl)}/r/{E(name)} {E(name)}</code> <button type="button" class="copy" data-copy-target="clone-cmd">copy</button></p>""");
         if (!string.IsNullOrEmpty(m?.Readme))
             b.Append($"""<section class="readme">{Markdown.Render(m.Readme)}</section>""");
         else if (me is not null && Auth.CanManageSettings(db, name, me.Id))

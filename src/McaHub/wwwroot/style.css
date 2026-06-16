@@ -172,3 +172,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .upload-drop.drag { border-color: var(--green); background: rgba(0,200,80,.06); }
 .upload-drop input[type=file] { margin: 10px 0; color: var(--muted); }
 .map img[src^="data:"] { max-width: 100%; height: auto; display: block; border-radius: 6px; }
+
+/* repo-page parity (#repo-page-parity): card description, card avatar, clone copy button, README */
+ul.repos li .desc { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 13px; }
+.desc { color: var(--fg); margin: 0 0 16px; }
+.desc.empty a, p.empty a { color: var(--link); }
+img.avatar.sm { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border); vertical-align: middle; }
+
+button.copy {
+  background: var(--panel); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 12px; cursor: pointer;
+}
+button.copy:hover { border-color: var(--link); color: var(--fg); }
+
+section.readme {
+  border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; margin: 16px 0; background: var(--panel);
+}
+section.readme h1, section.readme h2, section.readme h3 { text-transform: none; letter-spacing: 0; color: var(--fg); }
+section.readme h1, section.readme h2 { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+section.readme code { background: #11161c; padding: .15em .35em; border-radius: 4px; }
+section.readme pre { background: #11161c; padding: 12px; border-radius: 6px; overflow-x: auto; }
+section.readme pre code { background: none; padding: 0; }
+section.readme table { border-collapse: collapse; }
+section.readme th, section.readme td { border: 1px solid var(--border); padding: 4px 10px; }
+section.readme img { max-width: 100%; }
+
+/* edit-details form (column layout overriding form.find's row) */
+form.edit-details { flex-direction: column; align-items: stretch; }
+form.edit-details .fld { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+form.edit-details textarea {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; font: inherit; font-family: ui-monospace, monospace; resize: vertical;
+}
+form.edit-details button { align-self: flex-start; }

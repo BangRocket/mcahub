@@ -57,10 +57,26 @@
     });
   }
 
+  // Copy-to-clipboard buttons (e.g. the clone command). Reads the target element's text.
+  function wireCopy() {
+    document.querySelectorAll('button[data-copy-target]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var el = document.getElementById(btn.getAttribute('data-copy-target'));
+        if (!el || !navigator.clipboard) return; // no-op where the Clipboard API is unavailable
+        navigator.clipboard.writeText(el.textContent).then(function () {
+          var prev = btn.textContent;
+          btn.textContent = 'copied!';
+          setTimeout(function () { btn.textContent = prev; }, 1200);
+        }).catch(function () { /* user denied / insecure context — leave the text selectable */ });
+      });
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.map-box img').forEach(wireMapBox);
     wireScrubber();
     wireConfirms();
+    wireCopy();
   });
 })();
 
