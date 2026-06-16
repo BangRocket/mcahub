@@ -581,7 +581,8 @@ public static class Pages
         if (m is not null)
         {
             string vis = m.Private ? """<span class="vis vis-private">private</span>""" : """<span class="vis vis-public">public</span>""";
-            b.Append($"""<p class="meta">{vis} · owned by {Avatar(db.GetUser(m.OwnerId))}{E(db.GetUser(m.OwnerId)?.Login ?? "?")}</p>""");
+            HubUser? owner = db.GetUser(m.OwnerId);
+            b.Append($"""<p class="meta">{vis} · owned by {Avatar(owner)}{E(owner?.Login ?? "?")}</p>""");
             if (!string.IsNullOrEmpty(m.Description))
                 b.Append($"""<p class="desc">{E(m.Description)}</p>""");
             else if (me is not null && Auth.CanManageSettings(db, name, me.Id))
