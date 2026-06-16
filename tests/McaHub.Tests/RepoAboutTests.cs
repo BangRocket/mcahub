@@ -101,4 +101,19 @@ public class RepoAboutTests
         Assert.Contains(new string('d', 200), page);
         Assert.DoesNotContain(new string('d', 201), page);
     }
+
+    [Fact]
+    public async Task Home_card_shows_description()
+    {
+        using var f = new HubFactory(HubMode.Accounts);
+        HttpClient owner = await Accounts.SignInAsync(f, "alice");
+        string token = await Accounts.MintTokenAsync(owner);
+        await Accounts.CreateRepoAsync(f, token, "base");
+        await Accounts.SetPrivateAsync(owner, "base", false);          // public so it lists for everyone
+        await Accounts.SetAboutAsync(owner, "base", "A cosy hillside town", "");
+
+        string home = await (await owner.GetAsync("/")).Content.ReadAsStringAsync();
+        Assert.Contains("A cosy hillside town", home);
+        Assert.Contains("class=\"desc\"", home);
+    }
 }

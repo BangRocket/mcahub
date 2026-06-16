@@ -534,9 +534,11 @@ public static class Pages
             foreach (RepoSummary r in repos)
             {
                 HubRepoMeta? m = db.GetRepo(r.Name);
+                HubUser? owner = m is null ? null : db.GetUser(m.OwnerId);
                 string badges = (m?.Private == true ? """ <span class="vis vis-private">private</span>""" : "")
-                    + (m is not null ? $""" <span class="owner">{E(db.GetUser(m.OwnerId)?.Login ?? "?")}</span>""" : "");
-                b.Append($"""<li><a href="/r/{E(r.Name)}">{E(r.Name)}</a>{badges}<span class="meta">{r.Branches} branch(es){(r.LastWhen is null ? "" : $" · last backup {When(r.LastWhen)}")}</span>{(r.LastMessage is null ? "" : $"<span class=\"msg\">{E(Oneline(r.LastMessage))}</span>")}</li>""");
+                    + (m is not null ? $""" <span class="owner">{Avatar(owner)}{E(owner?.Login ?? "?")}</span>""" : "");
+                string desc = string.IsNullOrEmpty(m?.Description) ? "" : $"""<span class="desc">{E(m.Description)}</span>""";
+                b.Append($"""<li><a href="/r/{E(r.Name)}">{E(r.Name)}</a>{badges}<span class="meta">{r.Branches} branch(es){(r.LastWhen is null ? "" : $" · last backup {When(r.LastWhen)}")}</span>{desc}{(r.LastMessage is null ? "" : $"<span class=\"msg\">{E(Oneline(r.LastMessage))}</span>")}</li>""");
             }
             b.Append("</ul>");
         }
