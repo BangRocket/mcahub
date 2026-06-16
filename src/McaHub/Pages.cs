@@ -12,6 +12,23 @@ public static class Pages
     /// <summary>Request-timeout policy name applied to the cold-render map endpoint (registered in Program).</summary>
     public const string RenderTimeoutPolicy = "render";
 
+    /// <summary>About/README limits — README is capped because hub.json is rewritten in full on every
+    /// mutation across instances, so a large blob slows every write.</summary>
+    private const int MaxDescriptionChars = 200;
+    private const int MaxReadmeBytes = 32 * 1024;
+
+    /// <summary>Single-line, trimmed, length-capped description for storage.</summary>
+    private static string CleanDescription(string s)
+    {
+        s = s.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return s.Length > MaxDescriptionChars ? s[..MaxDescriptionChars] : s;
+    }
+
+    /// <summary>A small round owner avatar, or empty when the user has none. referrerpolicy trims the
+    /// referer leaked to the third-party avatar host (img-src https: already permits it).</summary>
+    private static string Avatar(HubUser? u) =>
+        u is { Avatar.Length: > 0 } ? $"""<img class="avatar sm" src="{E(u.Avatar)}" alt="" width="20" height="20" loading="lazy" referrerpolicy="no-referrer"> """ : "";
+
     public static void MapPages(WebApplication app, RepoStore store, WorldCache cache, MapCache maps, RenderQueue renderQueue, HubDb db, Auth.Config cfg, AuditLog audit, McaHub.Rust.RustEngine rust, string? reportEmail = null)
     {
         app.MapGet("/", (HttpContext ctx) => Home(ctx, store, db, cfg));
@@ -96,6 +113,22 @@ public static class Pages
                 bool priv = (await ctx.Request.ReadFormAsync())["private"].ToString() is "on" or "true";
                 db.SetPrivate(repo, priv);
                 Log(ctx, audit, "visibility", repo, priv ? "→ private" : "→ public");
+            }
+            return Results.Redirect($"/r/{repo}");
+        });
+        app.MapGet("/r/{repo}/edit", (string repo, HttpContext ctx) => EditDetails(ctx, store, db, cfg, repo));
+        app.MapPost("/r/{repo}/about", async (string repo, HttpContext ctx) =>
+        {
+            if (!await Auth.CsrfOk(ctx)) return BadCsrf();
+            if (Auth.Current(ctx) is { } me && Auth.CanManageSettings(db, repo, me.Id))
+            {
+                IFormCollection form = await ctx.Request.ReadFormAsync();
+                string readme = form["readme"].ToString();
+                if (System.Text.Encoding.UTF8.GetByteCount(readme) > MaxReadmeBytes)
+                    return Results.Redirect($"/r/{repo}/edit?err=toolong"); // reject, don't truncate
+                string desc = CleanDescription(form["description"].ToString());
+                db.SetRepoAbout(repo, desc.Length == 0 ? null : desc, readme.Length == 0 ? null : readme);
+                Log(ctx, audit, "about.edit", repo, desc.Length == 0 ? "(cleared description)" : "updated");
             }
             return Results.Redirect($"/r/{repo}");
         });
@@ -505,6 +538,32 @@ public static class Pages
             b.Append("</ul>");
         }
         return Page("Worlds", b.ToString(), chip);
+    }
+
+    private static IResult EditDetails(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, string name)
+    {
+        string chip = Auth.HeaderRight(ctx, cfg);
+        if (!store.Exists(name) || !CanSee(ctx, db, cfg, name)) return NotFound("world", chip);
+        HubUser? me = Auth.Current(ctx);
+        if (me is null || !Auth.CanManageSettings(db, name, me.Id)) return NotFound("world", chip); // hide the edit surface (no 403)
+        HubRepoMeta? m = db.GetRepo(name);
+
+        var b = new StringBuilder();
+        b.Append($"""<p class="back"><a href="/r/{E(name)}">← {E(name)}</a></p>""");
+        b.Append($"<h1>Edit {E(name)}</h1>");
+        if (ctx.Request.Query["err"] == "toolong")
+            b.Append($"""<p class="empty">README is too large (max {MaxReadmeBytes / 1024} KB). Nothing was saved.</p>""");
+        b.Append($"""
+            <form class="find edit-details" method="post" action="/r/{E(name)}/about">
+              {Auth.CsrfField(ctx)}
+              <label class="fld">Description
+                <input name="description" maxlength="{MaxDescriptionChars}" value="{E(m?.Description)}" placeholder="A short summary of this world"></label>
+              <label class="fld">README (Markdown)
+                <textarea name="readme" rows="16" placeholder="# My world&#10;&#10;Tell visitors about it…">{E(m?.Readme)}</textarea></label>
+              <button>Save details</button>
+            </form>
+            """);
+        return Page($"Edit {name}", b.ToString(), chip);
     }
 
     private static IResult Repo(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, string name, string? reportEmail)

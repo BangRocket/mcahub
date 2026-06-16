@@ -107,6 +107,15 @@ internal static class Accounts
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
     }
 
+    /// <summary>Set a repo's About description + README as a manager (loads CSRF from the edit page).
+    /// Returns the raw response so a test can assert the redirect target (e.g. rejection on oversize).</summary>
+    public static async Task<HttpResponseMessage> SetAboutAsync(HttpClient manager, string repo, string description, string readme)
+    {
+        string csrf = Csrf(await GetStringAsync(manager, $"/r/{repo}/edit"));
+        return await manager.PostAsync($"/r/{repo}/about",
+            Form(("__RequestVerificationToken", csrf), ("description", description), ("readme", readme)));
+    }
+
     /// <summary>Attempt a transport push (single-object) with a Bearer token; returns the raw response.</summary>
     public static async Task<HttpResponseMessage> PushAsync(HubFactory f, string token, string repo)
     {
