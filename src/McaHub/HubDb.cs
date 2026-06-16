@@ -230,6 +230,14 @@ public sealed class HubDb
         if (i >= 0) _db.Repos[i] = _db.Repos[i] with { Private = isPrivate };
     });
 
+    /// <summary>Set a repo's web-edited About description + README (either may be null to clear). Caller
+    /// validates/caps the values; the store trusts them.</summary>
+    public void SetRepoAbout(string name, string? description, string? readme) => Mutate(() =>
+    {
+        int i = _db.Repos.FindIndex(r => r.Name == name);
+        if (i >= 0) _db.Repos[i] = _db.Repos[i] with { Description = description, Readme = readme };
+    });
+
     // ---- collaborators ----
 
     /// <summary>A user's effective role on a repo: <c>owner</c>, <c>admin</c>, <c>maintain</c>, <c>write</c>,
@@ -432,7 +440,8 @@ public sealed record HubUser(string Id, string Login, string Name, string Avatar
     string? McUuid = null, string? McUsername = null, // verified Minecraft Java identity (#37), null for other providers
     bool Suspended = false,                           // operator lockout — a non-destructive penalty (#35)
     bool AgeAck = false);                             // confirmed 13+/parental consent at the age gate (#35)
-public sealed record HubRepoMeta(string Name, string OwnerId, bool Private, string CreatedAt);
+public sealed record HubRepoMeta(string Name, string OwnerId, bool Private, string CreatedAt,
+    string? Description = null, string? Readme = null); // about/README, web-edited (#repo-page-parity)
 public sealed record TokenInfo(string Prefix, string Label, string CreatedAt, string? LastUsedAt, string Scope = "write", string? ExpiresAt = null);
 public sealed record TokenAuth(string UserId, string Scope); // resolved Bearer token: who + what it can do
 public sealed record Collab(string Repo, string UserId, string Role); // Role: "read" | "write"
