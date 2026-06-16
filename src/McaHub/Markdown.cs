@@ -44,7 +44,9 @@ public static class Markdown
     private static bool IsSafeUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return false;
-        string u = url.TrimStart();
+        // Decode percent-encoding first: a browser resolves `javascript%3A…` to `javascript:…`, so a scheme
+        // check on the raw string would miss it (no literal ':' ⇒ looks relative). Decode, then detect.
+        string u = Uri.UnescapeDataString(url).TrimStart();
         int colon = u.IndexOf(':');
         if (colon < 0) return true;                                   // no scheme: relative path, anchor, or scheme-relative (//host) — allowed; CSP bounds cross-origin loads
         int slash = u.IndexOf('/'), hash = u.IndexOf('#'), q = u.IndexOf('?');

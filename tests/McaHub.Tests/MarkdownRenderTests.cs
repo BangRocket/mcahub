@@ -37,6 +37,15 @@ public class MarkdownRenderTests
     }
 
     [Fact]
+    public void Drops_percent_encoded_javascript_scheme()
+    {
+        // %3A is an encoded colon; a browser decodes it to `javascript:` and would execute it. The link
+        // text is "x", so "javascript" surviving in the output means the dangerous href leaked through.
+        Assert.DoesNotContain("javascript", Markdown.Render("[x](javascript%3Aalert(1))"));
+        Assert.DoesNotContain("javascript", Markdown.Render("![x](javascript%3Aalert(1))"));
+    }
+
+    [Fact]
     public void Keeps_http_links_and_marks_them_nofollow()
     {
         string html = Markdown.Render("[site](https://example.com/page)");
