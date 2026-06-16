@@ -581,7 +581,11 @@ public static class Pages
         if (m is not null)
         {
             string vis = m.Private ? """<span class="vis vis-private">private</span>""" : """<span class="vis vis-public">public</span>""";
-            b.Append($"""<p class="meta">{vis} · owned by {E(db.GetUser(m.OwnerId)?.Login ?? "?")}</p>""");
+            b.Append($"""<p class="meta">{vis} · owned by {Avatar(db.GetUser(m.OwnerId))}{E(db.GetUser(m.OwnerId)?.Login ?? "?")}</p>""");
+            if (!string.IsNullOrEmpty(m.Description))
+                b.Append($"""<p class="desc">{E(m.Description)}</p>""");
+            else if (me is not null && Auth.CanManageSettings(db, name, me.Id))
+                b.Append($"""<p class="desc empty"><a href="/r/{E(name)}/edit">+ Add a description</a></p>""");
             if (me is not null && Auth.CanManageSettings(db, name, me.Id))
                 // Exposing a private world is consequential — guard "Make public" with a confirm (#31).
                 b.Append($"""
@@ -595,6 +599,12 @@ public static class Pages
         RenderCollaborators(b, ctx, db, name, m, me);
         string baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
         b.Append($"""<p class="clone">Clone: <code>mcagit clone {E(baseUrl)}/r/{E(name)} {E(name)}</code></p>""");
+        if (!string.IsNullOrEmpty(m?.Readme))
+            b.Append($"""<section class="readme">{Markdown.Render(m.Readme)}</section>""");
+        else if (me is not null && Auth.CanManageSettings(db, name, me.Id))
+            b.Append($"""<p class="empty"><a href="/r/{E(name)}/edit">+ Add a README</a></p>""");
+        if (me is not null && Auth.CanManageSettings(db, name, me.Id))
+            b.Append($"""<p class="actions"><a href="/r/{E(name)}/edit">✎ Edit details</a></p>""");
         if (me is not null && Auth.CanManagePeople(db, name, me.Id))
         {
             b.Append($"""<p class="actions"><a href="/r/{E(name)}/audit">📜 audit log</a></p>""");
@@ -607,6 +617,7 @@ public static class Pages
         else if (reportEmail is { Length: > 0 }) // a non-owner viewing someone else's world (#35)
             b.Append($"""<p class="actions meta"><a href="mailto:{E(reportEmail)}?subject={E($"Report: {name}")}">⚑ Report this world</a></p>""");
 
+        string? head = rust.RevParse(repoDir, "HEAD");
         // A single branch is just noise to a non-dev — only show the section when there's a real choice (#31).
         var branches = rust.Branches(repoDir);
         if (branches.Count > 1)
@@ -617,7 +628,7 @@ public static class Pages
             b.Append("</ul>");
         }
 
-        if (rust.RevParse(repoDir, "HEAD") is { } head)
+        if (head is { })
         {
             b.Append($"""<h2>Backups</h2><p class="actions"><a href="/r/{E(name)}/timeline">🕑 time machine — scrub the map across backups</a></p><ol class="timeline">""");
             string? cur = head;
@@ -641,7 +652,11 @@ public static class Pages
             b.Append("</ol>");
         }
         else b.Append("""<p class="empty">No backups yet.</p>""");
-        return Page(name, b.ToString(), chip);
+        string ogDesc = !string.IsNullOrEmpty(m?.Description)
+            ? m!.Description!
+            : (head is { } h ? Oneline(rust.ReadCommit(repoDir, h).Message) : "A version-controlled Minecraft world");
+        string ogImg = head is { } hi ? $"{ctx.Request.Scheme}://{ctx.Request.Host}/r/{E(name)}/map/{hi}.png" : "";
+        return Page(name, b.ToString(), chip, OgTags(name, ogDesc, ogImg));
     }
 
     private static IResult Commit(HttpContext ctx, RepoStore store, HubDb db, Auth.Config cfg, McaHub.Rust.RustEngine rust, WorldCache cache, string name, string hash)
