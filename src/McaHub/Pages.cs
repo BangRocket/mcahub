@@ -21,7 +21,10 @@ public static class Pages
     private static string CleanDescription(string s)
     {
         s = s.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        return s.Length > MaxDescriptionChars ? s[..MaxDescriptionChars] : s;
+        if (s.Length <= MaxDescriptionChars) return s;
+        int cut = MaxDescriptionChars;
+        if (char.IsHighSurrogate(s[cut - 1])) cut--; // don't slice through a surrogate pair (emoji at the boundary)
+        return s[..cut];
     }
 
     /// <summary>A small round owner avatar, or empty when the user has none. referrerpolicy trims the
@@ -128,7 +131,7 @@ public static class Pages
                     return Results.Redirect($"/r/{repo}/edit?err=toolong"); // reject, don't truncate
                 string desc = CleanDescription(form["description"].ToString());
                 db.SetRepoAbout(repo, desc.Length == 0 ? null : desc, readme.Length == 0 ? null : readme);
-                Log(ctx, audit, "about.edit", repo, desc.Length == 0 ? "(cleared description)" : "updated");
+                Log(ctx, audit, "about.edit", repo, "updated");
             }
             return Results.Redirect($"/r/{repo}");
         });
