@@ -9,7 +9,7 @@ namespace McaHub.Tests;
 /// Drives the hub's accounts-mode flows over HTTP exactly as a browser + CLI would, so integration
 /// tests can build realistic ownership/visibility scenarios without reaching into HubDb internals.
 /// Sign-in uses the insecure dev-login (the factory enables it in <see cref="HubMode.Accounts"/>);
-/// pushes use a Bearer personal access token, like <c>mcadiff push</c>.
+/// pushes use a Bearer personal access token, like <c>mcagit push</c>.
 /// </summary>
 internal static class Accounts
 {

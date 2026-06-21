@@ -1,4 +1,4 @@
-# Keep the build context small + reproducible. mca-git (the core submodule) is intentionally NOT ignored.
+# Keep the build context small + reproducible.
 **/bin
 **/obj
 **/.vs

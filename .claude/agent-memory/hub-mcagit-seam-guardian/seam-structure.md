@@ -7,7 +7,7 @@ metadata:
 
 ## Route → RemoteService delegation map
 
-All routes live in `src/McaHub/Transport.cs`. Each request constructs a per-request `RemoteService(store.Open(repo), allowWrite)` — exactly the same handler `mcadiff serve` (RepoServer) uses. No hub-side guard reimplementation was found on any route; all guards live in the core.
+All routes live in `src/McaHub/Transport.cs`. Each request constructs a per-request `RemoteService(store.Open(repo), allowWrite)` — exactly the same handler `mcagit serve` (RepoServer) uses. No hub-side guard reimplementation was found on any route; all guards live in the core.
 
 | Route | Method | Hub handler | Core call |
 |---|---|---|---|
@@ -29,7 +29,7 @@ All routes live in `src/McaHub/Transport.cs`. Each request constructs a per-requ
 
 ## Key findings from 2026-06-05 audit (ranked)
 
-1. **CRITICAL — unbounded body buffer in hub** (`Transport.cs:101-106`): `Bytes()` reads the entire request body into a `MemoryStream` with no size cap. `RepoServer` (standalone `mcadiff serve`) caps at 256 MB (`MaxBody = 256L * 1024 * 1024`). Hub has no equivalent cap. A 10 GB POST to `/r/{repo}/pack` or `/r/{repo}/objects/{hash}` OOMs the process before the core's inflate guard runs.
+1. **CRITICAL — unbounded body buffer in hub** (`Transport.cs:101-106`): `Bytes()` reads the entire request body into a `MemoryStream` with no size cap. `RepoServer` (standalone `mcagit serve`) caps at 256 MB (`MaxBody = 256L * 1024 * 1024`). Hub has no equivalent cap. A 10 GB POST to `/r/{repo}/pack` or `/r/{repo}/objects/{hash}` OOMs the process before the core's inflate guard runs.
 
 2. **HIGH — `have` body read before auth check** (`Transport.cs:31-35`): The POST body is deserialized before `Readable()` is called. An unauthenticated caller on a private repo can consume server CPU and memory parsing a large JSON array before being rejected.
 
@@ -39,7 +39,7 @@ All routes live in `src/McaHub/Transport.cs`. Each request constructs a per-requ
 
 5. **MEDIUM — branch name reaches PathGuard only via core** (`Transport.cs:60-65`): The `{branch}` route parameter is passed directly to `s.UpdateRef(branch, ...)`, which calls `repo.WriteBranch(branch, ...)`, which calls `BranchPath(branch)`, which calls `PathGuard.Confine`. The hub does not validate `branch` before passing it. This is correct delegation (the core guards it), but any change to hub routing that extracts or uses `{branch}` before calling the core would miss the guard. The hub also never validates `{hash}` — `ObjectStore.IsValidHash` is the sole guard, called inside `PathFor()`.
 
-6. **LOW — submodule coupling pins core via gitlink** (`McaHub.csproj:15`, `.gitmodules`, ADR-0006): `ProjectReference` to `../../mca-git/src/McaDiff/McaDiff.csproj`; core is vendored as a git submodule at `./mca-git`, gitlink-pinned. CI uses `submodules: recursive`. Core API changes only land via an explicit `git submodule update --remote mca-git` + commit — visible as a one-line gitlink change in PR diffs. No silent core drift; supply-chain narrowed to deliberate bumps. Risk shifted: a submodule bump that lands a breaking core change is now a reviewable PR-time event, not a CI surprise.
+6. **LOW — submodule coupling pins core via gitlink** (`McaHub.csproj:15`, `.gitmodules`, ADR-0006): `ProjectReference` to `../../mcagit/src/mcagit/mcagit.csproj`; core is vendored as a git submodule at `./mcagit`, gitlink-pinned. CI uses `submodules: recursive`. Core API changes only land via an explicit `git submodule update --remote mcagit` + commit — visible as a one-line gitlink change in PR diffs. No silent core drift; supply-chain narrowed to deliberate bumps. Risk shifted: a submodule bump that lands a breaking core change is now a reviewable PR-time event, not a CI surprise.
 
 7. **LOW — actionlint installer fetched at runtime** (`ci.yml:65`): `bash <(curl ...)` fetches the install script from GitHub at a commit SHA of the script file, then installs a hardcoded version `1.7.12`. The script SHA is pinned but the binary it downloads is not — it fetches from GitHub releases, not a fixed digest. Not a code-execution risk in practice (GitHub releases are content-addressed by version), but inconsistent with the SHA-pinning discipline elsewhere.
 
@@ -49,11 +49,11 @@ All routes live in `src/McaHub/Transport.cs`. Each request constructs a per-requ
 
 ## Submodule coupling verdict
 
-The core is a git submodule at `./mca-git` (see [ADR-0006](../../../docs/adr/0006-mcadiff-submodule.md),
-superseding [ADR-0003](../../../docs/adr/0003-sibling-mcadiff-core-coupling.md)). The gitlink in the
+The core is a git submodule at `./mcagit` (see [ADR-0006](../../../docs/adr/0006-mcagit-submodule.md),
+superseding [ADR-0003](../../../docs/adr/0003-sibling-mcagit-core-coupling.md)). The gitlink in the
 parent repo's tree pins the exact commit; local and CI builds resolve against the same SHA by
 construction. Core API changes land at the hub's pace, via an explicit `git submodule update --remote
-mca-git` + commit, shown as a one-line gitlink change in PR diffs. Compile-time coupling is preserved
+mcagit` + commit, shown as a one-line gitlink change in PR diffs. Compile-time coupling is preserved
 (a core breakage at bump time is loud), but stealth drift is eliminated. Supply-chain risk further
 narrowed: CI no longer fetches the core's `main` at run time.
 

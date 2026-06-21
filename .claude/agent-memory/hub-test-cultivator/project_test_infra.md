@@ -9,10 +9,10 @@ metadata:
 - Zero test project in mcahub (CLAUDE.md confirms: "There is no test project in this repo").
 - Single CI check: render smoke in .github/workflows/ci.yml — runs the render CLI against core's real 1.21 sample world, checks PNG is non-empty. Exercises MapRenderer + core RegionFile/ChunkCodec but nothing else.
 
-## Core's test conventions (mca-git)
+## Core's test conventions (mcagit)
 - Framework: xUnit (xunit 2.9.3, Microsoft.NET.Test.Sdk 17.14.1, coverlet.collector 6.0.4)
 - Net target: net10.0 (core currently at net9.0 but hub is net10.0)
-- Project at: mca-git/tests/McaDiff.Tests/McaDiff.Tests.csproj
+- Project at: mcagit/tests/mcagit.Tests/mcagit.Tests.csproj
 - Synthetic world builder: TestAnvil (TempDir, WriteRegion, WriteLoose, Root helpers)
 - No binary fixtures — all test inputs built in code
 - No sleeps — deterministic sync via in-memory fakes (InMemoryBucket) or direct calls

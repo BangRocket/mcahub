@@ -6,7 +6,7 @@ stood up in its own issue; the suites below are filed against it. It's written n
 every test added grows in the same direction.
 
 The hub accepts untrusted input from two directions — the network (anyone who can
-`mcadiff clone/fetch/push`) and the world data itself (attacker-controlled NBT) — and its
+`mcagit clone/fetch/push`) and the world data itself (attacker-controlled NBT) — and its
 correctness lives in trust boundaries (authz, CSRF, path validation) and byte-exact surfaces
 (the wire protocol, the hand-rolled PNG encoder). That shape dictates the testing approach.
 
@@ -26,20 +26,20 @@ correctness lives in trust boundaries (authz, CSRF, path validation) and byte-ex
 
 ## The angles we use
 
-Mapped to the hub's real surfaces. The mcadiff **core** has its own test suite — don't test
+Mapped to the hub's real surfaces. The mcagit **core** has its own test suite — don't test
 the core from here; test the hub's *use* of it.
 
 | Angle | Hub surface | Pins |
 |---|---|---|
 | **Unit** | `RoleOf`, `IsValidName`, `BlockStateDecoder`, the PNG encoder helpers, `LoadDotEnv`, the OIDC `OnCreatingTicket` mappers, XErr handling | pure logic |
-| **Byte-exact (wire-format)** | the hand-rolled PNG encoder (signature / chunk framing / CRC32 / IHDR) and the mcadiff transport frames a real CLI must accept | exact bytes, never "length ≥ N" |
+| **Byte-exact (wire-format)** | the hand-rolled PNG encoder (signature / chunk framing / CRC32 / IHDR) and the mcagit transport frames a real CLI must accept | exact bytes, never "length ≥ N" |
 | **Store-state guard** | `HubDb` against a temp file: `RoleOf` folding (owner vs direct-collab vs team grant), `EnsureRepo` idempotency, token hash/resolve, collaborator/team grants | the JSON-store invariants |
 | **Response-shape** | the authz **status matrix** (every role × endpoint), **404-not-403** for private repos, CSRF reject, security headers | which response to which (role, request) |
-| **Round-trip** | `mcadiff push` → `clone` end-to-end through `WebApplicationFactory` + the core's `RemoteOps`, incl. auto-create-and-claim on first push | the assembled transport pipeline |
+| **Round-trip** | `mcagit push` → `clone` end-to-end through `WebApplicationFactory` + the core's `RemoteOps`, incl. auto-create-and-claim on first push | the assembled transport pipeline |
 | **Concurrency** | `HubDb` writes under concurrent push; the simultaneous-first-push race; the render cache lock | TOCTOU / lost updates / races |
 | **Adversarial / malformed** | hostile NBT to the renderer (negative section-Y, malformed palette, huge spans); oversized / chunked / truncated push bodies; malformed protocol requests | bounds & graceful failure under hostile input |
 | **Negative-log guard** | when a silent `catch{}` becomes a structured log (e.g. `HubDb.Save` disk-full, bad-token, render failure), pin the log so a revert is caught | silent error-swallow reverts |
-| **Client-replay** *(later)* | record a real `mcadiff push` byte stream, replay it against a fresh hub, diff observable behaviour | protocol drift vs the floating core |
+| **Client-replay** *(later)* | record a real `mcagit push` byte stream, replay it against a fresh hub, diff observable behaviour | protocol drift vs the floating core |
 
 ## Choosing a test type
 
@@ -61,7 +61,7 @@ A new transport endpoint or authorization rule lands with **all** of:
 
 1. a **unit** test on the `RoleOf` predicate it depends on,
 2. a **response-shape** test for every role on the ladder, including the **404-not-403** cells,
-3. a **round-trip** test proving `mcadiff push/clone` still works,
+3. a **round-trip** test proving `mcagit push/clone` still works,
 4. a **concurrency** guard if it touches `HubDb` or a cache,
 5. and a **negative-log** guard if it added an error path.
 
@@ -79,19 +79,18 @@ without a live OAuth provider:
   (`NameIdentifier`/`Name`/`avatar`). Register it **under the same scheme name as the real
   cookie scheme** so `[Authorize]`/the access checks are satisfied; then a request sets one
   header to act as any role on the read→write→maintain→admin→owner ladder. (Pattern adapted
-  from the mcadiff core's `FakeAuthenticationHandler`.)
+  from the mcagit core's `FakeAuthenticationHandler`.)
 
 Synthesize fixtures in **code**, never commit binaries — build worlds/chunks with a
 `SyntheticChunk` builder (the core's TestAnvil approach), the way the renderer suite needs.
 
-## Gotchas (adopted from the mcadiff core's hard-won list)
+## Gotchas (adopted from the mcagit core's hard-won list)
 
 - **Revert-the-fix-must-fail.** Reproduce the bug shape, not the happy path.
 - **Byte-exact, not length.** A "length ≥ N" assertion on a serializer is trivially true.
 - **Assert by relationship, not by magic constant.** Re-derive baselines at runtime.
 - **Skip-reason clarity.** A skipped test must say *why* — for the hub, distinguish
-  "`mca-git` submodule not initialized" from other build failures (the CS0246 trap; run
-  `git submodule update --init` to fix).
+  "`mcagit` binary not found" from other build failures (set `MCAGIT_BIN`, or put `mcagit` on `PATH`).
 - **One-time tokens get a replay test** — present the same token twice, expect success then
   rejection.
 - **No PR/issue numbers or line-numbers in source comments** — describe the invariant;

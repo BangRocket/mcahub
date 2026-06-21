@@ -1,7 +1,7 @@
 {
   // markdownlint config for the hub's human-facing docs (README, SECURITY.md, CLAUDE.md).
   // Structural rules stay on; purely stylistic ones that fight normal prose and our table
-  // style are off. Mirrors the mcadiff core's config.
+  // style are off. Mirrors the mcagit core's config.
   "config": {
     "default": true,
     "MD013": false, // line-length — prose wraps freely, code blocks have long lines

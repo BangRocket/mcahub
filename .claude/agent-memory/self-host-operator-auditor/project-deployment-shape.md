@@ -6,10 +6,10 @@ metadata:
 ---
 
 ## Submodule coupling (per ADR-0006, superseding ADR-0003)
-- `src/McaHub/McaHub.csproj` has a `ProjectReference` to `../../mca-git/src/McaDiff/McaDiff.csproj`
-- The mcadiff core is a git submodule at `./mca-git` of the hub repo, gitlink-pinned
+- `src/McaHub/McaHub.csproj` has a `ProjectReference` to `../../mcagit/src/mcagit/mcagit.csproj`
+- The mcagit core is a git submodule at `./mcagit` of the hub repo, gitlink-pinned
 - Build failure without it (i.e., when a plain `git clone` leaves the submodule empty): ~26 CS0246 errors (Repository, RemoteService, etc. not found) — no helpful error message; fix is `git submodule update --init` or re-clone with `--recurse-submodules`
-- `McaHub.slnx` also references `../mca-git/src/McaDiff/McaDiff.csproj`
+- `McaHub.slnx` also references `../mcagit/src/mcagit/mcagit.csproj`
 - CI uses `actions/checkout` with `submodules: recursive`; README leads with `git clone --recurse-submodules` and CLAUDE.md restates the requirement
 
 ## Default paths (Program.cs lines 21-25)

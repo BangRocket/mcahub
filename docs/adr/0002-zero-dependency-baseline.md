@@ -11,7 +11,7 @@ thing a self-hoster's `dotnet restore` must fetch and a reviewer must trust. The
 already reflects a deliberate hand-rolled stance: the PNG encoder is written directly on
 `ZLibStream` + a CRC32 (no image library), the account store is a JSON file (no ORM), and
 config is read by a tiny dotenv parser (no config package). The only references are the
-ASP.NET Core framework and the mcadiff core (see [ADR-0003](0003-sibling-mcadiff-core-coupling.md)).
+ASP.NET Core framework and the mcagit core (see [ADR-0003](0003-sibling-mcagit-core-coupling.md)).
 
 ## Decision
 
@@ -30,6 +30,6 @@ Xbox/Minecraft auth chains) by hand is *in* scope precisely because it avoids a 
 - **Negative:** more code to own (the PNG encoder, any future WebAuthn/CBOR reader); we
   re-implement spec contracts we could otherwise buy.
 - **Neutral / follow-ups:** the **transitive** deps we do ship come entirely through the
-  mcadiff core's project reference (fNbt, LZ4, cloud SDKs) and are *not* visible to the
+  mcagit core's project reference (fNbt, LZ4, cloud SDKs) and are *not* visible to the
   hub's own Dependabot/CodeQL — that gap is real and tracked separately (see the
-  supply-chain issue and [ADR-0003](0003-sibling-mcadiff-core-coupling.md)).
+  supply-chain issue and [ADR-0003](0003-sibling-mcagit-core-coupling.md)).

@@ -3,14 +3,13 @@
     CI-gated strict-warnings posture (#40): in CI, treat warnings as errors so a merge can't introduce a
     new one; locally the inner dev loop stays fast and non-strict. GitHub Actions sets CI=true for us.
 
-    Scoped to THIS repo's projects only — never the vendored mcadiff core (the `mca-git` submodule lives
-    *inside* the repo, so MSBuild would otherwise inherit these props into it; we don't control its warnings).
+    Scoped to THIS repo's projects only (the mcagit engine is a separate Rust binary, not built here).
 
     Note: AnalysisMode is left at the default recommended set, not AllEnabledByDefault — turning the full
     analyzer set on surfaces ~1500 pre-existing findings that warrant their own cleanup pass (tracked
     separately), and a NoWarn list that large wouldn't be meaningfully "justified inline".
   -->
-  <PropertyGroup Condition="'$(CI)' == 'true' and '$(MSBuildProjectName)' != 'McaDiff'">
+  <PropertyGroup Condition="'$(CI)' == 'true'">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>

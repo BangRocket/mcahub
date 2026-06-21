@@ -19,7 +19,7 @@ string dbPath = builder.Configuration["DbPath"] ?? Environment.GetEnvironmentVar
 string auditPath = builder.Configuration["AuditPath"] ?? Environment.GetEnvironmentVariable("MCAHUB_AUDIT") ?? Path.Combine(sibling, "audit.jsonl");
 
 // Cap how much a single push may buffer. Kestrel's default is 30 MB; worlds can be larger, so we raise
-// it to 256 MiB (matching the mcadiff core's RepoServer) and enforce the same ceiling while streaming.
+// it to 256 MiB (configurable via MCAHUB_MAX_PUSH_BYTES) and enforce the same ceiling while streaming.
 long maxPushBytes = ParsePositiveLong(builder.Configuration["MaxPushBytes"] ?? Environment.GetEnvironmentVariable("MCAHUB_MAX_PUSH_BYTES")) ?? 256L * 1024 * 1024;
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = maxPushBytes);
 

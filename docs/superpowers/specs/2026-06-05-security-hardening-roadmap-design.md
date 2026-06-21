@@ -86,8 +86,8 @@ deployments (env still works; config is only set by tests).
 `.github/workflows/ci.yml`:
 
 1. checkout the hub into a subdir;
-2. checkout **`BangRocket/mcadiff` pinned to commit `41f6f2f`** into the sibling path the build
-   expects (`../mca-git`), so `../mca-git/src/McaDiff/McaDiff.csproj` resolves;
+2. checkout **`BangRocket/mcagit` pinned to commit `41f6f2f`** into the sibling path the build
+   expects (`../mcagit`), so `../mcagit/src/mcagit/mcagit.csproj` resolves;
 3. setup .NET 10;
 4. `dotnet test`.
 

@@ -4,7 +4,7 @@
 
 **Goal:** Stand up an xUnit + `WebApplicationFactory<Program>` test project with a `HubFactory` that boots the hub hermetically in any auth mode, plus a CI job — so every later security fix lands with a regression test.
 
-**Architecture:** A new `tests/McaHub.Tests` project references the hub and boots it in-memory via `WebApplicationFactory<Program>`. A `HubFactory` drives the hub's mode (open / token / accounts) **purely through `IConfiguration` (`UseSetting`)** against fresh temp directories, so tests are hermetic and parallel-safe. A small config-first refactor in `Auth.Read`/`Program` makes dev-login, the proxy switch, and the master token controllable via config (matching how the dir paths already read). CI checks out the sibling `mcadiff` core pinned to a known commit.
+**Architecture:** A new `tests/McaHub.Tests` project references the hub and boots it in-memory via `WebApplicationFactory<Program>`. A `HubFactory` drives the hub's mode (open / token / accounts) **purely through `IConfiguration` (`UseSetting`)** against fresh temp directories, so tests are hermetic and parallel-safe. A small config-first refactor in `Auth.Read`/`Program` makes dev-login, the proxy switch, and the master token controllable via config (matching how the dir paths already read). CI checks out the sibling `mcagit` core pinned to a known commit.
 
 **Tech Stack:** .NET 10, xUnit, `Microsoft.AspNetCore.Mvc.Testing`, GitHub Actions.
 
@@ -116,7 +116,7 @@ Expected: both succeed; `Microsoft.AspNetCore.Mvc.Testing` resolves a `10.0.x` v
 
 Run: `dotnet sln McaHub.slnx add tests/McaHub.Tests/McaHub.Tests.csproj --solution-folder tests`
 Expected: `Project ... added to the solution.`
-Fallback if the CLI rejects slnx: hand-edit `McaHub.slnx` to add, before the `McaDiff` line:
+Fallback if the CLI rejects slnx: hand-edit `McaHub.slnx` to add, before the `mcagit` line:
 ```xml
   <Folder Name="/tests/">
     <Project Path="tests/McaHub.Tests/McaHub.Tests.csproj" />
@@ -357,12 +357,12 @@ jobs:
         with:
           path: mcahub
 
-      - name: Check out mcadiff core (pinned)
+      - name: Check out mcagit core (pinned)
         uses: actions/checkout@v4
         with:
-          repository: BangRocket/mcadiff
+          repository: BangRocket/mcagit
           ref: 41f6f2fd2b4d7f2bef935646ae8a7763526e4d6d
-          path: mca-git
+          path: mcagit
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
@@ -382,7 +382,7 @@ jobs:
         run: dotnet test McaHub.slnx --configuration Release --no-build
 ```
 
-The checkout paths put the hub at `<workspace>/mcahub` and the core at `<workspace>/mca-git`, so the build's `..\..\..\mca-git\src\McaDiff\McaDiff.csproj` reference resolves. The core is pinned to today's `main` (`41f6f2f`) for reproducibility and to seed the supply-chain work (#12).
+The checkout paths put the hub at `<workspace>/mcahub` and the core at `<workspace>/mcagit`, so the build's `..\..\..\mcagit\src\mcagit\mcagit.csproj` reference resolves. The core is pinned to today's `main` (`41f6f2f`) for reproducibility and to seed the supply-chain work (#12).
 
 - [ ] **Step 2: Validate the workflow YAML locally**
 
@@ -393,7 +393,7 @@ Expected: `yaml ok`
 
 ```bash
 git add .github/workflows/ci.yml
-git commit -m "Add CI: dotnet test with pinned mcadiff core"
+git commit -m "Add CI: dotnet test with pinned mcagit core"
 ```
 
 ---
@@ -420,7 +420,7 @@ Stands up the test foundation for the security-hardening campaign (roadmap: docs
 - `HubFactory`: boots the hub hermetically (temp dirs, OAuth forced off) in open/token/accounts mode, driven purely via IConfiguration
 - Small config-first refactor: dev-login, the proxy switch, and the master token now read config-then-env (matching the dir paths); empty master token is treated as unset
 - Smoke + `Auth.Read` tests proving mode selection works
-- CI workflow: `dotnet test` against the sibling mcadiff core pinned to 41f6f2f
+- CI workflow: `dotnet test` against the sibling mcagit core pinned to 41f6f2f
 
 Closes #19.
 
@@ -435,5 +435,5 @@ Expected: PR URL printed.
 ## Notes / risks
 
 - **`UseSetting` → pre-`Build()` config reads:** the harness depends on `UseSetting` values being visible to `builder.Configuration[...]` reads that run before `builder.Build()`. This is the documented WAF pattern and is verified by the accounts-mode smoke test. Fallback noted in Task 4 Step 4.
-- **CI core build:** if the pinned `mcadiff` core needs more than `McaDiff.csproj` to restore on a clean runner, the Build step will surface it; fix forward (the local build references only `McaDiff.csproj` and is clean).
+- **CI core build:** if the pinned `mcagit` core needs more than `mcagit.csproj` to restore on a clean runner, the Build step will surface it; fix forward (the local build references only `mcagit.csproj` and is clean).
 - **slnx tooling:** `dotnet sln/restore/build/test` against `.slnx` requires the .NET 10 SDK (present: 10.0.300). Hand-edit fallback for `dotnet sln` noted in Task 2 Step 3.

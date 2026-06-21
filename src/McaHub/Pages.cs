@@ -527,7 +527,7 @@ public static class Pages
         var b = new StringBuilder("<h1>Worlds</h1>");
         b.Append("""<p class="actions"><a href="/upload">⬆ Inspect a world</a> — drag in a .zip to see its map, no CLI</p>""");
         if (repos.Count == 0)
-            b.Append("""<p class="empty">No worlds yet. Push one: <code>mcadiff push http://&lt;this-host&gt;/r/&lt;name&gt; main</code> (the hub auto-creates it).</p>""");
+            b.Append("""<p class="empty">No worlds yet. Push one: <code>mcagit push http://&lt;this-host&gt;/r/&lt;name&gt; main</code> (the hub auto-creates it).</p>""");
         else
         {
             b.Append("<ul class=\"repos\">");
@@ -907,12 +907,12 @@ public static class Pages
                 <div class="flash">
                   <strong>New token</strong> — copy it now, it won't be shown again:
                   <div><code class="token">{E(fresh)}</code></div>
-                  <div class="g-where">Use it: <code>mcadiff push {E($"{ctx.Request.Scheme}://{ctx.Request.Host}")}/r/&lt;name&gt; main --token {E(fresh)}</code></div>
+                  <div class="g-where">Use it: <code>mcagit push {E($"{ctx.Request.Scheme}://{ctx.Request.Host}")}/r/&lt;name&gt; main --token {E(fresh)}</code></div>
                 </div>
                 """);
 
         b.Append("<h2>Personal access tokens</h2>");
-        b.Append("""<p class="meta">The CLI can't do a browser login, so <code>mcadiff push/clone</code> against private worlds (or any push in accounts mode) authenticates with one of these.</p>""");
+        b.Append("""<p class="meta">The CLI can't do a browser login, so <code>mcagit push/clone</code> against private worlds (or any push in accounts mode) authenticates with one of these.</p>""");
         var tokens = db.ListTokens(me.Id);
         if (tokens.Count == 0) b.Append("""<p class="empty">No tokens yet.</p>""");
         else

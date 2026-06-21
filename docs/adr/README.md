@@ -20,7 +20,7 @@ re-litigated without their rationale. Format is [Michael Nygard's ADR template](
 |---|---|---|
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](0002-zero-dependency-baseline.md) | Zero-dependency baseline (no NuGet beyond the framework) | Accepted |
-| [0003](0003-sibling-mcadiff-core-coupling.md) | Reference the mcadiff core as a sibling project | Superseded by [0006](0006-mcadiff-submodule.md) |
+| [0003](0003-sibling-mcagit-core-coupling.md) | Reference the mcagit core as a sibling project | Superseded by [0006](0006-mcagit-submodule.md) |
 | [0004](0004-json-file-account-store.md) | A single JSON file is the account store | Accepted |
 | [0005](0005-modular-monolith-over-microservices.md) | Modular monolith over microservices | Accepted |
-| [0006](0006-mcadiff-submodule.md) | Vendor the mcadiff core as a git submodule | Accepted |
+| [0006](0006-mcagit-submodule.md) | Vendor the mcagit core as a git submodule | Accepted |

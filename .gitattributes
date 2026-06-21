@@ -1,4 +1,4 @@
-# Normalize line endings to LF (matches .editorconfig and the mcadiff core). Workflow yml and
+# Normalize line endings to LF (matches .editorconfig and the mcagit core). Workflow yml and
 # any future container scripts are interpreted byte-for-byte on Linux — CRLF there is a hard error.
 * text=auto eol=lf
 

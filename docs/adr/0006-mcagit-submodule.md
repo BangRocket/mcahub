@@ -1,17 +1,17 @@
-# ADR-0006: Vendor the mcadiff core as a git submodule
+# ADR-0006: Vendor the mcagit core as a git submodule
 
 - **Status:** Accepted
 - **Date:** 2026-06-05
 
 ## Context
 
-[ADR-0003](0003-sibling-mcadiff-core-coupling.md) referenced the mcadiff core via a
-sibling-path `ProjectReference` (`..\..\..\mca-git\src\McaDiff\McaDiff.csproj`), expecting
-the operator to clone `BangRocket/mcadiff` next to the hub repo. In practice the single
+[ADR-0003](0003-sibling-mcagit-core-coupling.md) referenced the mcagit core via a
+sibling-path `ProjectReference` (`..\..\..\mcagit\src\mcagit\mcagit.csproj`), expecting
+the operator to clone `BangRocket/mcagit` next to the hub repo. In practice the single
 biggest onboarding footgun was exactly the one that ADR called out: a plain `git clone`
 plus `dotnet build` produces ~26 cryptic `CS0246` errors with the real cause buried in an
 `MSB9008` warning. CI also carried the coupling: a separate `actions/checkout` of
-`BangRocket/mcadiff` at a manually-bumped commit SHA, while the hub's csproj had no
+`BangRocket/mcagit` at a manually-bumped commit SHA, while the hub's csproj had no
 version constraint, allowing local and CI builds to silently disagree.
 
 The end-state in ADR-0003 — publish the core as a versioned NuGet and replace the project
@@ -21,10 +21,10 @@ onboarding and version-skew pain.
 
 ## Decision
 
-We will vendor the mcadiff core as a **git submodule** at `./mca-git` of the hub repo, and
-change the `ProjectReference` to `..\..\mca-git\src\McaDiff\McaDiff.csproj`. The submodule
+We will vendor the mcagit core as a **git submodule** at `./mcagit` of the hub repo, and
+change the `ProjectReference` to `..\..\mcagit\src\mcagit\mcagit.csproj`. The submodule
 gitlink in the parent repo's tree is the canonical pin: bumping the core is an explicit
-`git submodule update --remote mca-git` followed by a commit, visible in PR diffs. CI uses
+`git submodule update --remote mcagit` followed by a commit, visible in PR diffs. CI uses
 `actions/checkout` with `submodules: recursive` and stops separately checking out the core,
 so local and CI builds resolve against the same commit by construction.
 
@@ -40,7 +40,7 @@ until the core API stabilizes. A future ADR will supersede this one when the pac
   not as a quiet CI-only edit.
 - **Negative:**
   - **Submodule UX friction.** Operators who forget `--recurse-submodules` still get the
-    CS0246 errors (now with empty `mca-git/`); the error message is no friendlier than
+    CS0246 errors (now with empty `mcagit/`); the error message is no friendlier than
     before, though the README and CLAUDE.md call it out at the top.
   - **Bump cadence is more deliberate.** Floating against upstream `main` is no longer
     free — every bump is an explicit submodule update commit. That is mostly a feature

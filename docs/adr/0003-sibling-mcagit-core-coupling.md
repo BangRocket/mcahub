@@ -1,19 +1,19 @@
-# ADR-0003: Reference the mcadiff core as a sibling project
+# ADR-0003: Reference the mcagit core as a sibling project
 
-- **Status:** Superseded by [ADR-0006](0006-mcadiff-submodule.md)
+- **Status:** Superseded by [ADR-0006](0006-mcagit-submodule.md)
 - **Date:** 2026-06-05
 
 ## Context
 
 The hub's value is rendering the *real* `WorldDiff` / `GriefReport` / `RemoteService`
-structures from the mcadiff core, not scraping CLI text. The core is a separate repository
-(`BangRocket/mcadiff`). We need its rich types in-process.
+structures from the mcagit core, not scraping CLI text. The core is a separate repository
+(`BangRocket/mcagit`). We need its rich types in-process.
 
 ## Decision
 
 We will reference the core **in-process via a sibling `ProjectReference`** —
-`..\..\..\mca-git\src\McaDiff\McaDiff.csproj` — checked out as a sibling directory named
-`mca-git`. The csproj carries no version constraint, so a local build resolves against
+`..\..\..\mcagit\src\mcagit\mcagit.csproj` — checked out as a sibling directory named
+`mcagit`. The csproj carries no version constraint, so a local build resolves against
 whatever sibling checkout is present; **CI pins the core to a specific commit SHA** for
 reproducible builds, bumped deliberately alongside a core change.
 

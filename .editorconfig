@@ -1,4 +1,4 @@
-# Editor defaults that match the `dotnet format` CI gate. Mirrors the mcadiff core's
+# Editor defaults that match the `dotnet format` CI gate. Mirrors the mcagit core's
 # .editorconfig so hub code and the core it embeds agree on style (see .github/workflows/ci.yml).
 root = true
 

@@ -52,7 +52,7 @@ public static class Html
           <main id="main">
         {{body}}
           </main>
-          <footer>Self-hosted Minecraft worlds, powered by <code>mcadiff</code>. · <a href="/aup">Acceptable use</a></footer>
+          <footer>Self-hosted Minecraft worlds, powered by <code>mcagit</code>. · <a href="/aup">Acceptable use</a></footer>
           <script src="/app.js"></script>
         </body>
         </html>

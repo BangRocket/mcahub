@@ -5,8 +5,8 @@ using System.Text.Json.Serialization;
 namespace McaHub.Rust;
 
 /// <summary>
-/// Bridge to the Rust <c>mcagit</c> binary — the engine that replaces the in-process
-/// .NET mcadiff core (Phase 3 of the Rust-core port). Every operation shells out to
+/// Bridge to the Rust <c>mcagit</c> binary — the out-of-process engine for all world
+/// operations. Every call shells out to
 /// <c>mcagit</c> and parses its <c>--json</c> output (or, for transport, the hub
 /// protocol served by <c>mcagit serve</c>). Repos on disk are the Rust object format
 /// (blake3/zstd); this type never parses world bytes itself.

@@ -25,7 +25,7 @@ reviews:
       instructions: >
         Every GET goes through Readable, every write through Write. Private repos must return
         404, never 403 — existence is hidden. Fast-forward checks and pack hash verification
-        belong in the mcadiff core, not here. Ownership claim-on-first-push is intentional but
+        belong in the mcagit core, not here. Ownership claim-on-first-push is intentional but
         sensitive — flag any change to its conditions.
     - path: "src/McaHub/HubDb.cs"
       instructions: >
@@ -49,7 +49,7 @@ reviews:
         Watch for attacker-sized allocations before the 160x160-chunk span cap applies,
         extreme/negative section Y, and malformed palettes. Caches are keyed by commit hash and
         rely on commit immutability — flag anything that would cache mutable state. Inflate /
-        NBT-depth / path-confinement bounds live in the mcadiff core (SafeInflate,
+        NBT-depth / path-confinement bounds live in the mcagit core (SafeInflate,
         NbtDepthGuard, PathGuard.Confine) — flag any code that reaches around them.
 
   tools:

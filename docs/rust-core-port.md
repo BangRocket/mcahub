@@ -1,6 +1,6 @@
 # Porting mcahub's core to the Rust mcagit engine
 
-mcahub was built against the **.NET** mcadiff core (vendored at `mca-git/`, SHA-256/zlib
+mcahub was built against the **.NET** mcagit core (vendored at `mcagit/`, SHA-256/zlib
 objects, in-process `WorldDiff`/`GriefReport`/`MapRenderer`). mcagit is now **Rust** (blake3/zstd,
 a different object format), so the .NET core can neither store nor render Rust-format worlds. This
 is the plan to swap mcahub's engine to the Rust `mcagit` binary while keeping mcahub's web/auth/
@@ -50,12 +50,12 @@ Order matters: do storage + transport first (so Rust-format repos exist), then r
 5. **`MapRenderer.cs` / `MapCache.cs`** — delete the .NET renderer; `MapCache` calls
    `RustEngine.Render`. (The Rust renderer is a faithful port of the same palette + north-shading.)
 6. **`DiscordWebhook.cs`** — grief alert fields from `RustEngine.Grief`.
-7. **Remove** the `McaDiff` `ProjectReference` from `McaHub.csproj` + drop the `mca-git`
+7. **Remove** the `mcagit` `ProjectReference` from `McaHub.csproj` + drop the `mcagit`
    submodule once nothing references it.
 
 ## Tests
 
-The test suite references `RepoStore`/`McaDiff` types heavily. After the rewire, the transport
+The test suite references `RepoStore`/`mcagit` types heavily. After the rewire, the transport
 tests exercise the proxy against a real `mcagit serve`; the render/diff/grief tests assert on the
 new DTOs (build a synthetic Rust repo via the `mcagit` CLI in a fixture helper, not in-process).
 Plan a `RustEngineTests` that round-trips a tiny world: `init → commit → checkout → diff/render`.

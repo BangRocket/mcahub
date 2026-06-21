@@ -14,15 +14,15 @@ metadata:
 - `src/McaHub/Pages.cs:386` — `Map()` handler for `/r/{repo}/map/{reff}.png`
 - `src/McaHub/Transport.cs` — write endpoint; no size/rate limiting on push
 
-### File Locations (core, submodule at ./mca-git per ADR-0006)
-- `src/McaDiff/Diff/BlockStateDecoder.cs` — palette decode, packed long-array decode
-- `src/McaDiff/Anvil/RegionFile.cs` — Anvil region parser (header + chunk payloads)
-- `src/McaDiff/Anvil/ChunkCodec.cs` — decompression via InflateBounded (128 MiB cap per chunk)
-- `src/McaDiff/Nbt/NbtDepthGuard.cs` — pre-parse depth scan, MaxDepth=512
-- `src/McaDiff/Repo/SafeInflate.cs` — 512 MiB cap for object-store inflate
-- `src/McaDiff/Repo/ObjectStore.cs` — content-addressed store; Read() has NO inflate cap (unbounded ZLib decompress)
-- `src/McaDiff/Repo/Checkout.cs` — materializes manifest to disk via PathGuard.Confine
-- `src/McaDiff/PathGuard.cs` — path confinement + NTFS ADS guard on Windows
+### File Locations (core, submodule at ./mcagit per ADR-0006)
+- `src/mcagit/Diff/BlockStateDecoder.cs` — palette decode, packed long-array decode
+- `src/mcagit/Anvil/RegionFile.cs` — Anvil region parser (header + chunk payloads)
+- `src/mcagit/Anvil/ChunkCodec.cs` — decompression via InflateBounded (128 MiB cap per chunk)
+- `src/mcagit/Nbt/NbtDepthGuard.cs` — pre-parse depth scan, MaxDepth=512
+- `src/mcagit/Repo/SafeInflate.cs` — 512 MiB cap for object-store inflate
+- `src/mcagit/Repo/ObjectStore.cs` — content-addressed store; Read() has NO inflate cap (unbounded ZLib decompress)
+- `src/mcagit/Repo/Checkout.cs` — materializes manifest to disk via PathGuard.Confine
+- `src/mcagit/PathGuard.cs` — path confinement + NTFS ADS guard on Windows
 
 ### Key Constants
 - `MapRenderer.MaxSideChunks = 160` — span cap (both X and Z); applied AFTER the dictionary fills

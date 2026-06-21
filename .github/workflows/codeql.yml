@@ -4,7 +4,7 @@ name: codeql
 # (anyone who can push to it) and attacker-controlled world data that gets parsed, materialized
 # to disk, and rendered to images (see SECURITY.md) — exactly the profile CodeQL's C#
 # taint-tracking queries are built for. `build-mode: none` analyzes from source, so this job
-# does NOT need the mca-git submodule checked out.
+# does NOT need the mcagit engine binary present.
 
 on:
   push:

@@ -12,7 +12,7 @@ namespace McaHub;
 
 /// <summary>
 /// Identity for the hub. Two worlds meet here: the <em>web</em> UI authenticates interactively
-/// (OAuth → cookie), while the <em>CLI</em> (<c>mcadiff push</c>, which can't run a browser redirect)
+/// (OAuth → cookie), while the <em>CLI</em> (<c>mcagit push</c>, which can't run a browser redirect)
 /// authenticates with a personal access token minted in the web UI and sent as a Bearer header — the
 /// same split GitHub uses for <c>git push</c>. OAuth defaults to GitHub but every endpoint is
 /// env-overridable, so a self-hoster can point it at GitLab, Gitea, or any OAuth2 provider.
