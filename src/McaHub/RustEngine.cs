@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -11,11 +12,19 @@ namespace McaHub.Rust;
 /// protocol served by <c>mcagit serve</c>). Repos on disk are the Rust object format
 /// (blake3/zstd); this type never parses world bytes itself.
 /// </summary>
-public sealed class RustEngine(string binary)
+/// <param name="binary">The <c>mcagit</c> executable (path or PATH name).</param>
+/// <param name="commitCacheMax">Cap on memoized commit-metadata entries (see <see cref="ReadCommit"/>).</param>
+public sealed class RustEngine(string binary, int commitCacheMax = 8192)
 {
     /// <summary>The configured binary, defaulting to <c>mcagit</c> on PATH (override via MCAGIT_BIN).</summary>
     public static RustEngine FromEnv() =>
         new(Environment.GetEnvironmentVariable("MCAGIT_BIN") is { Length: > 0 } b ? b : "mcagit");
+
+    // Commit metadata is content-addressed and immutable, and every caller resolves a hash via
+    // rev-parse before calling ReadCommit, so a memoized entry never goes stale. This turns the
+    // per-commit `cat-file` fan-out on the timeline/repo pages (one subprocess per backup) into a
+    // single read per distinct commit for the app's lifetime — the main "every page is slow" win.
+    private readonly ConcurrentDictionary<string, CommitMeta> _commitCache = new();
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -90,12 +99,20 @@ public sealed class RustEngine(string binary)
         return outp.Trim(); // `commit` prints the new hash to stdout
     }
 
-    /// <summary>Commit metadata (tree/parents/message/author/time) via <c>cat-file</c>.</summary>
+    /// <summary>Commit metadata (tree/parents/message/author/time) via <c>cat-file</c>, memoized:
+    /// commits are immutable and callers pass a resolved hash, so the result is cached per
+    /// <c>(repoDir, commit)</c> and never re-shelled. The cache is flushed when it reaches
+    /// <c>commitCacheMax</c> so it can't grow without bound across many repos/commits.</summary>
     public CommitMeta ReadCommit(string repoDir, string commit)
     {
+        string key = repoDir + "\0" + commit;
+        if (_commitCache.TryGetValue(key, out CommitMeta? cached)) return cached;
         var (_, outp, _) = Run(["-C", repoDir, "cat-file", commit], allow: [0]);
-        return JsonSerializer.Deserialize<CommitMeta>(outp, Json)
+        CommitMeta meta = JsonSerializer.Deserialize<CommitMeta>(outp, Json)
             ?? throw new InvalidOperationException($"unreadable commit {commit}");
+        if (_commitCache.Count >= commitCacheMax) _commitCache.Clear();
+        _commitCache[key] = meta;
+        return meta;
     }
 
     // ---- render data (the web UI) ----
