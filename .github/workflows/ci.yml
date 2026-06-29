@@ -12,7 +12,7 @@ jobs:
       CI: 'true'   # turns on the strict-warnings posture in Directory.Build.props (#40)
     steps:
       - name: Check out hub (with mcadiff submodule)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: mcahub
           submodules: recursive
